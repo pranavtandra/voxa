@@ -73,7 +73,7 @@ export default function Home() {
   const [profile,setProfile]=useLocal("voxa-profile","Alex"); const [icons,setIcons]=useLocal("voxa-icons",true);
   const [animations,setAnimations]=useLocal("voxa-animations",true); const [buttonSize,setButtonSize]=useLocal("voxa-size","large");
   const [partner,setPartner]=useState("What would you like for lunch?"); const [customName,setCustomName]=useState("");
-  const [custom,setCustom]=useLocal<Item[]>("voxa-custom",[]); const [demo,setDemo]=useState(false);
+  const [custom,setCustom]=useLocal<Item[]>("voxa-custom",[]); const [demo,setDemo]=useState(false); const [demoStep,setDemoStep]=useState(0);
   const [source,setSource]=useState<"local"|"gemini">("local");
   const allData=[...data,...custom];
   const grid=category==="favorites"?allData.filter(i=>["water-drink","need-break","headphones"].includes(i.id)):allData.filter(i=>i.category===category);
@@ -90,9 +90,17 @@ export default function Home() {
   function speak(text=message){if(!text||typeof window==="undefined")return; window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.onstart=()=>setSpeaking(true);u.onend=()=>setSpeaking(false);window.speechSynthesis.speak(u);setHistory(h=>[{time:new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}),text},...h].slice(0,30));}
   function save(){if(!message)return;setPhrases(p=>[{id:crypto.randomUUID(),text:message,favorite:false},...p]);}
   function clear(){setSelected([]);setMessage("");}
-  function startDemo(){setEntered(true);setPage("Communicate");setDemo(true);setCategory("feelings");setSelected([]);setMessage("");setTimeout(()=>setSelected([data.find(i=>i.id==="overwhelmed")!]),900);setTimeout(()=>setSelected(s=>[...s,data.find(i=>i.id==="too-loud")!]),1800);setTimeout(()=>setSelected(s=>[...s,data.find(i=>i.id==="break")!]),2700);setTimeout(()=>setMessage("It's too loud and I'm feeling overwhelmed. Could I take a break?"),3700);setTimeout(()=>setDemo(false),7000)}
+  function startDemo(){setEntered(true);setDemo(true);setDemoStep(0)}
+  function exitDemo(){window.speechSynthesis?.cancel();setDemo(false);setDemoStep(0);setPage("Communicate")}
+  useEffect(()=>{
+    if(!demo)return;
+    const timers=[700,1750,2800,3850,5000].map((delay,index)=>window.setTimeout(()=>setDemoStep(index+1),delay));
+    const speakTimer=window.setTimeout(()=>{if("speechSynthesis" in window){window.speechSynthesis.cancel();window.speechSynthesis.speak(new SpeechSynthesisUtterance("It's too loud and I'm feeling overwhelmed. Could I take a break?"));}},5250);
+    return()=>{timers.forEach(clearTimeout);clearTimeout(speakTimer)};
+  },[demo]);
 
   if(!entered) return <Landing onEnter={()=>setEntered(true)} onDemo={startDemo}/>;
+  if(demo) return <GuidedDemo step={demoStep} onExit={exitDemo} onReplay={()=>{setDemoStep(0);setDemo(false);setTimeout(()=>setDemo(true),30)}}/>;
   return <main className={`app ${animations?"":"no-motion"}`}>
     <header className="topbar">
       <button className="brand" onClick={()=>setEntered(false)} aria-label="Voxa home"><Logo/> <span>Voxa</span></button>
@@ -117,7 +125,6 @@ export default function Home() {
         <div className="message-actions"><button className="speak" disabled={!message} onClick={()=>speaking?(window.speechSynthesis.cancel(),setSpeaking(false)):speak()}>{speaking?"■ Stop":"▶ Speak"}</button><button disabled={!message} onClick={()=>setEditing(!editing)}>✎ Edit</button><button disabled={!message} onClick={create}>↻ Another</button><button disabled={!message} onClick={save}>♡ Save</button></div>
         <button className="clear" onClick={clear}>Clear everything</button>
         <div className="principle"><b>🔒 You’re in control</b><p>Voxa only uses the choices you select. It never guesses what you mean.</p></div>
-        {demo&&<div className="demo-toast">Demo Mode is showing how Alex asks for a break.</div>}
       </aside>
     </div>}
     {page==="Conversation"&&<Page title="Conversation" sub="Take turns while keeping every message visible."><div className="conversation"><div className="bubble partner"><b>Conversation Partner</b><p>{partner}</p></div>{message&&<div className="bubble me"><b>Me</b><p>{message}</p><button onClick={()=>speak(message)}>▶ Speak</button></div>}<label>Partner's message<textarea value={partner} onChange={e=>setPartner(e.target.value)}/></label><div className="suggestion-buttons"><b>Useful responses</b>{(/hungry|lunch|eat/i.test(partner)?["Food","Yes","No","I don't know"]:["Yes","No","I don't know","Give me a moment"]).map(x=><button key={x} onClick={()=>{setMessage(x+(/[?.!]$/.test(x)?"":"."));}}>{x}</button>)}</div><button className="primary" onClick={()=>{setPage("Communicate");setCategory("food")}}>Open visual choices</button></div></Page>}
@@ -135,6 +142,27 @@ function Page({title,sub,children}:{title:string;sub:string;children:React.React
 function Empty({title,text}:{title:string;text:string}){return <div className="empty"><span>○</span><h3>{title}</h3><p>{text}</p></div>}
 function Setting({title,desc,children}:{title:string;desc:string;children:React.ReactNode}){return <div className="setting"><div><b>{title}</b><p>{desc}</p></div>{children}</div>}
 function Toggle({value,set}:{value:boolean;set?:(v:boolean)=>void}){return <button role="switch" aria-checked={value} className={`toggle ${value?"on":""}`} onClick={()=>set?.(!value)}><i/></button>}
+function GuidedDemo({step,onExit,onReplay}:{step:number;onExit:()=>void;onReplay:()=>void}){
+  const phrase="It's too loud and I'm feeling overwhelmed. Could I take a break?";
+  return <main className="guided-demo">
+    <header><span className="brand"><Logo/><span>Voxa</span></span><span className="demo-progress">Guided demo · {Math.min(step+1,6)} of 6</span><button onClick={onExit}>Exit demo <b>×</b></button></header>
+    <section className="demo-stage">
+      <div className="demo-intro"><p className="eyebrow">A MOMENT AT SCHOOL</p><h1>Alex needs the room<br/>to feel a little quieter.</h1><p>Watch how a few intentional choices become a complete thought.</p></div>
+      <div className="demo-workspace">
+        <p className="eyebrow purple">ALEX CHOOSES</p>
+        <div className="guided-tiles">
+          <div className={step>=1?"pressed":""}>😵<b>Overwhelmed</b>{step>=1&&<i>✓</i>}</div>
+          <div className={step>=2?"pressed":""}>🔊<b>Too loud</b>{step>=2&&<i>✓</i>}</div>
+          <div className={step>=3?"pressed":""}>☁️<b>Need a break</b>{step>=3&&<i>✓</i>}</div>
+        </div>
+        <button className={`demo-create ${step>=4?"pressed":""}`}>✦ Create message</button>
+        <div className={`guided-message ${step>=4?"show":""}`}><p className="eyebrow mint">VOXA SUGGESTS</p><blockquote>“{phrase}”</blockquote><button className={step>=5?"speaking":""}>▶ {step>=5?"Speaking…":"Speak"}</button></div>
+        <div className={`demo-cursor step-${step}`} aria-hidden><span>↖</span><i/></div>
+      </div>
+      {step>=5&&<div className="demo-finish"><b>A complete thought in a few taps.</b><button onClick={onReplay}>↻ Replay</button><button onClick={onExit}>Try Voxa →</button></div>}
+    </section>
+  </main>
+}
 function Landing({onEnter,onDemo}:{onEnter:()=>void;onDemo:()=>void}){return <main className="landing">
   <header className="landing-nav"><button className="brand"><Logo/><span>Voxa</span></button><nav><a href="#how">How it works</a><a href="#features">Features</a><a href="#about">About</a><a href="#privacy">Privacy</a></nav><button className="nav-cta" onClick={onEnter}>Try Voxa →</button></header>
   <section className="hero"><div className="hero-copy"><span className="pill">● Communication, made clearer</span><h1>Find your<br/><em>words.</em></h1><p>Voxa helps people communicate through simple visual choices, personalized phrases, and intelligent language assistance.</p><div><button className="primary" onClick={onEnter}>Try Voxa <span>→</span></button><button className="watch" onClick={onDemo}>▶ Watch demo</button></div><small>Private by default · No account required</small></div>
