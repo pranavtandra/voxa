@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   if (!key) return Response.json({ error: "Private mode" }, { status: 503 });
   const body = await request.json() as { selections?: Array<{id:string;label:string;category:string}>; style?: string };
   if (!body.selections?.length) return Response.json({ error: "No selections" }, { status: 400 });
-  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent", {
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": key },
     body: JSON.stringify({
