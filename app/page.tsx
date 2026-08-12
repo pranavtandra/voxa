@@ -84,7 +84,7 @@ export default function Home() {
   }
   async function create(){
     const fallback=generateCommunicationPhrase(selected,style); setEditing(false);
-    try{const response=await fetch("/api/generate",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({selections:selected.map(({id,label,category})=>({id,label,category})),style})});if(!response.ok)throw new Error();const body=await response.json();if(!body.phrase)throw new Error();setMessage(body.phrase);setSource("gemini");}
+    try{const response=await fetch("/api/generate",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({selections:selected.map(({id,label,category})=>({id,label,category})),style})});if(!response.ok)throw new Error();const body=await response.json();const phrase=typeof body.phrase==="string"?body.phrase.trim():"";if(!phrase||phrase.length>280||/[{}\[\]]/.test(phrase)||/\b(id|label|category|json)\b\s*[:=]/i.test(phrase))throw new Error();setMessage(phrase);setSource("gemini");}
     catch{setMessage(fallback);setSource("local");}
   }
   function speak(text=message){if(!text||typeof window==="undefined")return; window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.onstart=()=>setSpeaking(true);u.onend=()=>setSpeaking(false);window.speechSynthesis.speak(u);setHistory(h=>[{time:new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}),text},...h].slice(0,30));}
