@@ -13,13 +13,13 @@ function isCleanPhrase(value: unknown): value is string {
   if (/[{}\[\]]/.test(phrase)) return false;
   if (/\b(id|label|category|selections?|json)\b\s*[:=]/i.test(phrase)) return false;
   if (/^```|```$/.test(phrase) || phrase.includes("\n")) return false;
-  return /[a-z]/i.test(phrase);
+  return /\p{L}/u.test(phrase);
 }
 
 export async function POST(request: Request) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return Response.json({ error: "Private mode" }, { status: 503 });
-  const body = await request.json() as { selections?: Array<{id:string;label:string;category:string}>; style?: string };
+  const body = await request.json() as { selections?: Array<{id:string;label:string;category:string}>; style?: string; language?: string };
   if (!body.selections?.length) return Response.json({ error: "No selections" }, { status: 400 });
   const concepts = body.selections
     .map(({ label }) => label?.trim())
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     headers: { "content-type": "application/json", "x-goog-api-key": key },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      contents: [{ role: "user", parts: [{ text: `Sentence style: ${body.style || "natural"}\nThe user intentionally chose these concepts, in order:\n${concepts.map((concept, index) => `${index + 1}. ${concept}`).join("\n")}` }] }],
+      contents: [{ role: "user", parts: [{ text: `Output language: ${body.language || "English (United States)"}\nSentence style: ${body.style || "natural"}\nThe user intentionally chose these concepts, in order:\n${concepts.map((concept, index) => `${index + 1}. ${concept}`).join("\n")}` }] }],
       generationConfig: {
         temperature: 0.1,
         maxOutputTokens: 256,
