@@ -139,7 +139,7 @@ export default function Home() {
     const {data:{subscription}}=supabase.auth.onAuthStateChange((event,next)=>{
       setSession(next);setAuthReady(true);
       if(event==="PASSWORD_RECOVERY"){setRecovery(true);setAuthOpen(true)}
-      if(event==="SIGNED_IN"&&event!=="PASSWORD_RECOVERY"){setAuthOpen(false);setEntered(true)}
+      if(event==="SIGNED_IN"){setAuthOpen(false);setEntered(true)}
       if(event==="SIGNED_OUT")setEntered(false);
     });
     return()=>subscription.unsubscribe();
