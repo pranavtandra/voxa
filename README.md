@@ -25,11 +25,12 @@ Voxa combines visual communication with intelligent language assistance. Users s
 - Demo profiles and persistent accessibility settings
 - Guided Demo Mode and usage-patterns view
 - Responsive desktop, tablet, and mobile layouts
-- Device-local persistence using `localStorage`
+- Secure Supabase email accounts with verification and password recovery
+- Per-user cloud sync protected by row-level security
 
 ## Architecture
 
-Voxa uses a React interface running on the Vinext/Vite Sites stack. Communication data and preferences live in browser storage. The local communication engine provides reliable phrase generation without internet access. When `GEMINI_API_KEY` is configured, the server-only `/api/generate` route can ask Gemini for a natural phrasing; failures immediately fall back to the local engine. Speech uses the browser Web Speech API.
+Voxa uses a React interface running on the Vinext/Vite Sites stack. Supabase Auth provides verified email accounts and persistent sessions, while account-owned communication data and preferences sync through row-level-security policies. The local communication engine provides reliable phrase generation without internet access. When `GEMINI_API_KEY` is configured, the server-only `/api/generate` route can ask Gemini for a natural phrasing; failures immediately fall back to the local engine. Speech uses the browser Web Speech API.
 
 ## Running Voxa
 
@@ -38,7 +39,7 @@ npm install
 npm run dev
 ```
 
-Copy `.env.example` to `.env.local` and add `GEMINI_API_KEY` only if optional Gemini assistance is wanted. Never place the key in client-side code.
+Copy `.env.example` to `.env.local`, add the Supabase project URL and publishable key, and add `GEMINI_API_KEY` only if optional Gemini assistance is wanted. Never place secret keys in client-side code.
 
 ## Possible Future Features
 

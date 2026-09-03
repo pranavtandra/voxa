@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { Session, User } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase";
 
 type Style = "direct" | "natural" | "detailed";
 type Item = { id: string; label: string; emoji: string; category: string; phrase?: string };
@@ -78,22 +80,49 @@ function useLocal<T>(key:string, initial:T) {
   return [value,setValue] as const;
 }
 
+function useCloudLocal<T>(key:string, initial:T, userId?:string) {
+  const [value,setValue]=useLocal<T>(key,initial);
+  const [cloudUser,setCloudUser]=useState<string>();
+  const valueRef=useRef(value);
+  useEffect(()=>{valueRef.current=value},[value]);
+  useEffect(()=>{
+    let active=true;
+    if(!userId)return;
+    supabase.from("voxa_user_data").select("value").eq("user_id",userId).eq("key",key).maybeSingle().then(async({data,error})=>{
+      if(!active)return;
+      if(error){console.error("Voxa sync load failed",error);return;}
+      if(data?.value!==undefined)setValue(data.value as T);
+      else await supabase.from("voxa_user_data").upsert({user_id:userId,key,value:valueRef.current},{onConflict:"user_id,key"});
+      if(active)setCloudUser(userId);
+    });
+    return()=>{active=false};
+  },[key,userId,setValue]);
+  useEffect(()=>{
+    if(!userId||cloudUser!==userId)return;
+    const timer=window.setTimeout(()=>{void supabase.from("voxa_user_data").upsert({user_id:userId,key,value},{onConflict:"user_id,key"})},250);
+    return()=>window.clearTimeout(timer);
+  },[cloudUser,key,userId,value]);
+  return [value,setValue] as const;
+}
+
 export default function Home() {
+  const [session,setSession]=useState<Session|null>(null); const [authReady,setAuthReady]=useState(false); const [authOpen,setAuthOpen]=useState(false); const [recovery,setRecovery]=useState(false);
   const [entered,setEntered]=useState(false); const [page,setPage]=useState("Communicate");
   const [category,setCategory]=useState("quick"); const [selected,setSelected]=useState<Item[]>([]);
   const [message,setMessage]=useState(""); const [editing,setEditing]=useState(false); const [speaking,setSpeaking]=useState(false);
-  const [style,setStyle]=useLocal<Style>("voxa-style","natural"); const [phrases,setPhrases]=useLocal<SavedPhrase[]>("voxa-phrases",[]);
-  const [history,setHistory]=useLocal<HistoryItem[]>("voxa-history",[]);
-  const [profile,setProfile]=useLocal("voxa-profile","Alex"); const [icons,setIcons]=useLocal("voxa-icons",true);
-  const [animations,setAnimations]=useLocal("voxa-animations",true); const [buttonSize,setButtonSize]=useLocal("voxa-size","large");
-  const [tts,setTts]=useLocal("voxa-tts",true); const [autoSpeak,setAutoSpeak]=useLocal("voxa-auto-speak",false); const [voiceName,setVoiceName]=useLocal("voxa-voice",""); const [language,setLanguage]=useLocal("voxa-language","en-US");
+  const userId=session?.user.id;
+  const [style,setStyle]=useCloudLocal<Style>("voxa-style","natural",userId); const [phrases,setPhrases]=useCloudLocal<SavedPhrase[]>("voxa-phrases",[],userId);
+  const [history,setHistory]=useCloudLocal<HistoryItem[]>("voxa-history",[],userId);
+  const [profile,setProfile]=useCloudLocal("voxa-profile","Alex",userId); const [icons,setIcons]=useCloudLocal("voxa-icons",true,userId);
+  const [animations,setAnimations]=useCloudLocal("voxa-animations",true,userId); const [buttonSize,setButtonSize]=useCloudLocal("voxa-size","large",userId);
+  const [tts,setTts]=useCloudLocal("voxa-tts",true,userId); const [autoSpeak,setAutoSpeak]=useCloudLocal("voxa-auto-speak",false,userId); const [voiceName,setVoiceName]=useCloudLocal("voxa-voice","",userId); const [language,setLanguage]=useCloudLocal("voxa-language","en-US",userId);
   const [voices,setVoices]=useState<SpeechSynthesisVoice[]>([]); const [activeRoutine,setActiveRoutine]=useState<number|null>(null); const [routineStep,setRoutineStep]=useState(0);
   const [partner,setPartner]=useState(""); const [customName,setCustomName]=useState("");
-  const [routines,setRoutines]=useLocal<Routine[]>("voxa-routines",defaultRoutines); const [addingRoutine,setAddingRoutine]=useState(false);
+  const [routines,setRoutines]=useCloudLocal<Routine[]>("voxa-routines",defaultRoutines,userId); const [addingRoutine,setAddingRoutine]=useState(false);
   const [routineName,setRoutineName]=useState(""); const [routinePhrases,setRoutinePhrases]=useState<string[]>([]);
   const [addingWord,setAddingWord]=useState(false); const [newWord,setNewWord]=useState(""); const [newEmoji,setNewEmoji]=useState("✨"); const [emojiScreen,setEmojiScreen]=useState(false); const [emojiQuery,setEmojiQuery]=useState(""); const [emojiGroup,setEmojiGroup]=useState("All");
-  const [conversation,setConversation]=useLocal<ConversationMessage[]>("voxa-conversation",[]); const [composingConversation,setComposingConversation]=useState(false);
-  const [custom,setCustom]=useLocal<Item[]>("voxa-custom",[]); const [demo,setDemo]=useState(false); const [demoStep,setDemoStep]=useState(0);
+  const [conversation,setConversation]=useCloudLocal<ConversationMessage[]>("voxa-conversation",[],userId); const [composingConversation,setComposingConversation]=useState(false);
+  const [custom,setCustom]=useCloudLocal<Item[]>("voxa-custom",[],userId); const [demo,setDemo]=useState(false); const [demoStep,setDemoStep]=useState(0);
   const [source,setSource]=useState<"local"|"gemini">("local");
   const allData=[...data,...custom];
   const grid=category==="favorites"?allData.filter(i=>["water-drink","need-break","headphones"].includes(i.id)):allData.filter(i=>i.category===category);
@@ -105,6 +134,16 @@ export default function Home() {
   const week=Array.from({length:7},(_,offset)=>{const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-(6-offset));const key=d.toISOString().slice(0,10);return{label:d.toLocaleDateString([],{weekday:"narrow"}),count:history.filter(h=>h.date===key).length}});
 
   useEffect(()=>{const load=()=>setVoices(window.speechSynthesis?.getVoices()||[]);load();window.speechSynthesis?.addEventListener("voiceschanged",load);return()=>window.speechSynthesis?.removeEventListener("voiceschanged",load)},[]);
+  useEffect(()=>{
+    void supabase.auth.getSession().then(({data})=>{setSession(data.session);setAuthReady(true)});
+    const {data:{subscription}}=supabase.auth.onAuthStateChange((event,next)=>{
+      setSession(next);setAuthReady(true);
+      if(event==="PASSWORD_RECOVERY"){setRecovery(true);setAuthOpen(true)}
+      if(event==="SIGNED_IN"&&event!=="PASSWORD_RECOVERY"){setAuthOpen(false);setEntered(true)}
+      if(event==="SIGNED_OUT")setEntered(false);
+    });
+    return()=>subscription.unsubscribe();
+  },[]);
   useEffect(()=>{if(localStorage.getItem("voxa-empty-phrases-v2"))return;setPhrases([]);setHistory(h=>h.filter(x=>![["10:42 AM","Could I have some water, please?"],["10:38 AM","It's too loud in here."]].some(([time,text])=>x.time===time&&x.text===text)));localStorage.setItem("voxa-empty-phrases-v2","1")},[setPhrases,setHistory]);
 
   function choose(item:Item){
@@ -124,8 +163,8 @@ export default function Home() {
   function clear(){setSelected([]);setMessage("");}
   function addWord(e:React.FormEvent){e.preventDefault();const label=newWord.trim();if(!label)return;setCustom(x=>[...x,{id:crypto.randomUUID(),label,emoji:newEmoji.trim()||"✨",category,phrase:["quick","questions","responses","help"].includes(category)?label+(/[?.!]$/.test(label)?"":"."):undefined}]);setNewWord("");setNewEmoji("✨");setAddingWord(false)}
   function addRoutine(e:React.FormEvent){e.preventDefault();if(!routineName.trim()||!routinePhrases.length)return;setRoutines(x=>[...x,{id:crypto.randomUUID(),name:routineName.trim(),emoji:"✦",phrases:routinePhrases}]);setRoutineName("");setRoutinePhrases([]);setAddingRoutine(false)}
-  function startDemo(){setEntered(true);setDemo(true);setDemoStep(0)}
-  function exitDemo(){window.speechSynthesis?.cancel();setDemo(false);setDemoStep(0);setPage("Communicate")}
+  function startDemo(){setDemo(true);setDemoStep(0)}
+  function exitDemo(){window.speechSynthesis?.cancel();setDemo(false);setDemoStep(0);setEntered(false);setPage("Communicate")}
   useEffect(()=>{
     if(!demo)return;
     const timers=[700,1750,2800,3850,5000].map((delay,index)=>window.setTimeout(()=>setDemoStep(index+1),delay));
@@ -133,13 +172,16 @@ export default function Home() {
     return()=>{timers.forEach(clearTimeout);clearTimeout(speakTimer)};
   },[demo]);
 
-  if(!entered) return <Landing onEnter={()=>setEntered(true)} onDemo={startDemo}/>;
   if(demo) return <GuidedDemo step={demoStep} onExit={exitDemo} onReplay={()=>{setDemoStep(0);setDemo(false);setTimeout(()=>setDemo(true),30)}}/>;
+  if(!authReady)return <main className="auth-page"><div className="auth-card"><Logo/><p>Loading Voxa…</p></div></main>;
+  if(authOpen||(!session&&entered))return <AuthScreen recovery={recovery} onRecoveryDone={()=>{setRecovery(false);setAuthOpen(false);setEntered(true)}} onBack={()=>{setAuthOpen(false);setEntered(false)}}/>;
+  if(!entered) return <Landing user={session?.user||null} onEnter={()=>session?setEntered(true):setAuthOpen(true)} onDemo={startDemo}/>;
+  if(!session)return <AuthScreen recovery={false} onRecoveryDone={()=>{}} onBack={()=>setEntered(false)}/>;
   return <main className={`app ${animations?"":"no-motion"}`}>
     <header className="topbar">
       <button className="brand" onClick={()=>setEntered(false)} aria-label="Voxa home"><Logo/> <span>Voxa</span></button>
       <nav className="desktop-nav" aria-label="Main navigation">{["Communicate","Conversation","My Phrases","Routines","History","Customize","Patterns","Settings"].map(n=><button key={n} className={page===n?"active":""} onClick={()=>setPage(n)}>{n}</button>)}</nav>
-      <div className="top-actions"><span className="private"><i/> Private Mode</span><select aria-label="Profile" value={profile} onChange={e=>setProfile(e.target.value)}><option>Alex</option><option>Maya</option></select></div>
+      <div className="top-actions"><span className="private"><i/> Secure sync</span><select aria-label="Profile" value={profile} onChange={e=>setProfile(e.target.value)}><option>Alex</option><option>Maya</option></select><button className="logout" onClick={()=>void supabase.auth.signOut()}>Log out</button></div>
     </header>
     <nav className="mobile-nav" aria-label="Mobile navigation">{["Communicate","Conversation","My Phrases","Settings"].map(n=><button key={n} className={page===n?"active":""} onClick={()=>setPage(n)}>{n.replace("My Phrases","Phrases")}</button>)}</nav>
     {page==="Communicate"&&<div className="communicate">
@@ -179,6 +221,23 @@ function Page({title,sub,children}:{title:string;sub:string;children:React.React
 function Empty({title,text}:{title:string;text:string}){return <div className="empty"><span>○</span><h3>{title}</h3><p>{text}</p></div>}
 function Setting({title,desc,children}:{title:string;desc:string;children:React.ReactNode}){return <div className="setting"><div><b>{title}</b><p>{desc}</p></div>{children}</div>}
 function Toggle({value,set}:{value:boolean;set?:(v:boolean)=>void}){return <button role="switch" aria-checked={value} className={`toggle ${value?"on":""}`} onClick={()=>set?.(!value)}><i/></button>}
+function AuthScreen({recovery,onRecoveryDone,onBack}:{recovery:boolean;onRecoveryDone:()=>void;onBack:()=>void}){
+  const [mode,setMode]=useState<"login"|"signup"|"forgot">("login"); const [email,setEmail]=useState(""); const [password,setPassword]=useState(""); const [confirm,setConfirm]=useState(""); const [message,setMessage]=useState(""); const [busy,setBusy]=useState(false);
+  async function submit(e:React.FormEvent){
+    e.preventDefault();setMessage("");
+    if((mode==="signup"||recovery)&&password.length<8){setMessage("Use at least 8 characters for your password.");return;}
+    if((mode==="signup"||recovery)&&password!==confirm){setMessage("Passwords do not match.");return;}
+    setBusy(true);
+    try{
+      if(recovery){const {error}=await supabase.auth.updateUser({password});if(error)throw error;setMessage("Password updated.");onRecoveryDone();return;}
+      if(mode==="forgot"){const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:window.location.origin});if(error)throw error;setMessage("Check your email for a secure password reset link.");return;}
+      if(mode==="signup"){const {data,error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:window.location.origin}});if(error)throw error;if(!data.session)setMessage("Check your email to verify your account, then log in.");return;}
+      const {error}=await supabase.auth.signInWithPassword({email,password});if(error)throw error;
+    }catch(error){setMessage(error instanceof Error?error.message:"Something went wrong. Please try again.");}finally{setBusy(false)}
+  }
+  const title=recovery?"Choose a new password":mode==="signup"?"Create your Voxa account":mode==="forgot"?"Reset your password":"Welcome back";
+  return <main className="auth-page"><button className="auth-back" onClick={onBack}>← Back to Voxa</button><section className="auth-card"><div className="auth-brand"><Logo/><span>Voxa</span></div><p className="eyebrow">SECURE ACCOUNT</p><h1>{title}</h1><p>{recovery?"Enter a new password for your account.":mode==="signup"?"Your communication data stays private to your account.":mode==="forgot"?"We'll send a reset link to your email.":"Log in to enter your communication space."}</p><form onSubmit={submit}>{!recovery&&<label>Email<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label>}{mode!=="forgot"&&<label>{recovery?"New password":"Password"}<input type="password" autoComplete={recovery||mode==="signup"?"new-password":"current-password"} required minLength={8} value={password} onChange={e=>setPassword(e.target.value)}/></label>}{(recovery||mode==="signup")&&<label>Confirm password<input type="password" autoComplete="new-password" required minLength={8} value={confirm} onChange={e=>setConfirm(e.target.value)}/></label>}<button className="primary" disabled={busy}>{busy?"Please wait…":recovery?"Update password":mode==="signup"?"Create account":mode==="forgot"?"Send reset link":"Log in"}</button></form>{message&&<p className="auth-message" role="status">{message}</p>}{!recovery&&<div className="auth-links">{mode!=="login"&&<button onClick={()=>{setMode("login");setMessage("")}}>Log in</button>}{mode!=="signup"&&<button onClick={()=>{setMode("signup");setMessage("")}}>Create account</button>}{mode!=="forgot"&&<button onClick={()=>{setMode("forgot");setMessage("")}}>Forgot password?</button>}</div>}<small>Encrypted in transit. Voxa only loads data belonging to your account.</small></section></main>
+}
 function GuidedDemo({step,onExit,onReplay}:{step:number;onExit:()=>void;onReplay:()=>void}){
   const phrase="It's too loud and I'm feeling overwhelmed. Could I take a break?";
   return <main className="guided-demo">
@@ -200,14 +259,14 @@ function GuidedDemo({step,onExit,onReplay}:{step:number;onExit:()=>void;onReplay
     </section>
   </main>
 }
-function Landing({onEnter,onDemo}:{onEnter:()=>void;onDemo:()=>void}){return <main className="landing">
-  <header className="landing-nav"><button className="brand"><Logo/><span>Voxa</span></button><nav><a href="#how">How it works</a><a href="#features">Features</a><a href="#about">About</a><a href="#privacy">Privacy</a></nav><button className="nav-cta" onClick={onEnter}>Try Voxa →</button></header>
-  <section className="hero"><div className="hero-copy"><span className="pill">● Communication, made clearer</span><h1>Find your<br/><em>words.</em></h1><p>Voxa helps people communicate through simple visual choices, personalized phrases, and intelligent language assistance.</p><div><button className="primary" onClick={onEnter}>Try Voxa <span>→</span></button><button className="watch" onClick={onDemo}>▶ Watch demo</button></div><small>Private by default · No account required</small></div>
+function Landing({user,onEnter,onDemo}:{user:User|null;onEnter:()=>void;onDemo:()=>void}){return <main className="landing">
+  <header className="landing-nav"><button className="brand"><Logo/><span>Voxa</span></button><nav><a href="#how">How it works</a><a href="#features">Features</a><a href="#about">About</a><a href="#privacy">Privacy</a></nav><button className="nav-cta" onClick={onEnter}>{user?"Open Voxa":"Log in"} →</button></header>
+  <section className="hero"><div className="hero-copy"><span className="pill">● Communication, made clearer</span><h1>Find your<br/><em>words.</em></h1><p>Voxa helps people communicate through simple visual choices, personalized phrases, and intelligent language assistance.</p><div><button className="primary" onClick={onEnter}>{user?"Open Voxa":"Get started"} <span>→</span></button><button className="watch" onClick={onDemo}>▶ Watch demo</button></div><small>Private by default · Secure account required for the app</small></div>
     <div className="hero-demo"><div className="demo-top"><div><Logo/><span><b>Building a message</b><small>Tap what you mean</small></span></div><i>•••</i></div><p className="eyebrow purple">YOUR CHOICES</p><div className="demo-choices"><span>👤 <b>I</b><small>1</small></span><span>☝️ <b>want</b><small>2</small></span><span>💧 <b>water</b><small>3</small></span></div><div className="connector"><i/><b>✦</b><i/></div><div className="demo-message"><p className="eyebrow mint">VOXA SUGGESTS</p><h3>“Could I have some water, please?”</h3><button aria-label="Speak message">▶</button><small>You chose the meaning. Voxa helped with the words.</small></div></div>
   </section>
   <section className="trust"><span>A FEW TAPS.</span><b>A complete thought.</b><span>ALWAYS YOUR WORDS.</span></section>
   <section id="how" className="how"><p className="eyebrow">HOW IT WORKS</p><h2>From a thought to a message.</h2><p>Simple enough for the moment. Thoughtful enough for the person.</p><div>{[["01","Choose","Select what you want, need, feel, or want someone to know.","☝️"],["02","Voxa helps","Your selections become a clear, natural phrase—without changing your meaning.","✦"],["03","Communicate","Review it, change it, display it, or have Voxa say it aloud.","▶"]].map(x=><article key={x[0]}><small>{x[0]}</small><span>{x[3]}</span><h3>{x[1]}</h3><p>{x[2]}</p></article>)}</div><div className="flow"><span>Your choices</span><b>→</b><span className="voxa-flow"><Logo/> Voxa</span><b>→</b><span>Your message</span></div></section>
   <section id="features" className="features"><div><p className="eyebrow">BUILT AROUND YOU</p><h2>Your meaning.<br/>Your pace. <em>Your voice.</em></h2></div><div className="feature-grid">{[["♡","Meaning stays yours","Voxa translates intentional selections. It never guesses what you think or feel."],["⚡","Ready when words aren't","Quick phrases and urgent needs are always one tap away."],["◎","Made for real life","Large touch targets, clear contrast, and flexible profiles for every setting."],["⌂","Private by default","Core communication works offline and stays on your device."]].map(f=><article key={f[1]}><span>{f[0]}</span><h3>{f[1]}</h3><p>{f[2]}</p></article>)}</div></section>
   <section id="about" className="about"><Logo/><h2>Everyone deserves to be heard.</h2><p>Difficulty speaking shouldn't mean difficulty communicating. Voxa explores how visual communication and thoughtful language assistance can help turn a few intentional choices into complete thoughts—while keeping the person communicating in control.</p><button className="primary" onClick={onEnter}>Find your words →</button></section>
-  <footer id="privacy"><div><span className="brand"><Logo/><span>Voxa</span></span><p>Find your words.</p></div><div><b>Privacy, plainly.</b><p>No account required. Phrases, settings, and history stay on this device in Private Mode. Voxa does not sell communication data.</p></div><small>Voxa is an assistive communication exploration and does not replace AAC devices, speech-language professionals, medical care, or accessibility professionals.</small></footer>
+  <footer id="privacy"><div><span className="brand"><Logo/><span>Voxa</span></span><p>Find your words.</p></div><div><b>Privacy, plainly.</b><p>Your phrases, settings, and history are stored securely and isolated to your account. Voxa does not sell communication data.</p></div><small>Voxa is an assistive communication exploration and does not replace AAC devices, speech-language professionals, medical care, or accessibility professionals.</small></footer>
   </main>}
