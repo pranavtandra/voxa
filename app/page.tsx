@@ -113,7 +113,7 @@ export default function Home() {
   const userId=session?.user.id;
   const [style,setStyle]=useCloudLocal<Style>("voxa-style","natural",userId); const [phrases,setPhrases]=useCloudLocal<SavedPhrase[]>("voxa-phrases",[],userId);
   const [history,setHistory]=useCloudLocal<HistoryItem[]>("voxa-history",[],userId);
-  const [profile,setProfile]=useCloudLocal("voxa-profile","Alex",userId); const [icons,setIcons]=useCloudLocal("voxa-icons",true,userId);
+  const [icons,setIcons]=useCloudLocal("voxa-icons",true,userId);
   const [animations,setAnimations]=useCloudLocal("voxa-animations",true,userId); const [buttonSize,setButtonSize]=useCloudLocal("voxa-size","large",userId);
   const [tts,setTts]=useCloudLocal("voxa-tts",true,userId); const [autoSpeak,setAutoSpeak]=useCloudLocal("voxa-auto-speak",false,userId); const [voiceName,setVoiceName]=useCloudLocal("voxa-voice","",userId); const [language,setLanguage]=useCloudLocal("voxa-language","en-US",userId);
   const [voices,setVoices]=useState<SpeechSynthesisVoice[]>([]); const [activeRoutine,setActiveRoutine]=useState<number|null>(null); const [routineStep,setRoutineStep]=useState(0);
@@ -132,6 +132,7 @@ export default function Home() {
   const categoryCounts=history.reduce<Record<string,number>>((counts,item)=>{const key=item.category||"Communicate";counts[key]=(counts[key]||0)+1;return counts},{});
   const topCategory=Object.entries(categoryCounts).sort((a,b)=>b[1]-a[1])[0]?.[0]||"None yet";
   const week=Array.from({length:7},(_,offset)=>{const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-(6-offset));const key=d.toISOString().slice(0,10);return{label:d.toLocaleDateString([],{weekday:"narrow"}),count:history.filter(h=>h.date===key).length}});
+  const accountName=String(session?.user.user_metadata?.full_name||session?.user.user_metadata?.name||session?.user.email?.split("@")[0]||"Account");
 
   useEffect(()=>{const load=()=>setVoices(window.speechSynthesis?.getVoices()||[]);load();window.speechSynthesis?.addEventListener("voiceschanged",load);return()=>window.speechSynthesis?.removeEventListener("voiceschanged",load)},[]);
   useEffect(()=>{
@@ -181,7 +182,7 @@ export default function Home() {
     <header className="topbar">
       <button className="brand" onClick={()=>setEntered(false)} aria-label="Voxa home"><Logo/> <span>Voxa</span></button>
       <nav className="desktop-nav" aria-label="Main navigation">{["Communicate","Conversation","My Phrases","Routines","History","Customize","Patterns","Settings"].map(n=><button key={n} className={page===n?"active":""} onClick={()=>setPage(n)}>{n}</button>)}</nav>
-      <div className="top-actions"><span className="private"><i/> Secure sync</span><select aria-label="Profile" value={profile} onChange={e=>setProfile(e.target.value)}><option>Alex</option><option>Maya</option></select><button className="logout" onClick={()=>void supabase.auth.signOut()}>Log out</button></div>
+      <div className="top-actions"><span className="private"><i/> Secure sync</span><span className="account-name" aria-label="Signed-in account">{accountName}</span><button className="logout" onClick={()=>void supabase.auth.signOut()}>Log out</button></div>
     </header>
     <nav className="mobile-nav" aria-label="Mobile navigation">{["Communicate","Conversation","My Phrases","Settings"].map(n=><button key={n} className={page===n?"active":""} onClick={()=>setPage(n)}>{n.replace("My Phrases","Phrases")}</button>)}</nav>
     {page==="Communicate"&&<div className="communicate">
@@ -222,7 +223,7 @@ function Empty({title,text}:{title:string;text:string}){return <div className="e
 function Setting({title,desc,children}:{title:string;desc:string;children:React.ReactNode}){return <div className="setting"><div><b>{title}</b><p>{desc}</p></div>{children}</div>}
 function Toggle({value,set}:{value:boolean;set?:(v:boolean)=>void}){return <button role="switch" aria-checked={value} className={`toggle ${value?"on":""}`} onClick={()=>set?.(!value)}><i/></button>}
 function AuthScreen({recovery,onRecoveryDone,onBack}:{recovery:boolean;onRecoveryDone:()=>void;onBack:()=>void}){
-  const [mode,setMode]=useState<"login"|"signup"|"forgot">("login"); const [email,setEmail]=useState(""); const [password,setPassword]=useState(""); const [confirm,setConfirm]=useState(""); const [message,setMessage]=useState(""); const [busy,setBusy]=useState(false);
+  const [mode,setMode]=useState<"login"|"signup"|"forgot">("login"); const [name,setName]=useState(""); const [email,setEmail]=useState(""); const [password,setPassword]=useState(""); const [confirm,setConfirm]=useState(""); const [message,setMessage]=useState(""); const [busy,setBusy]=useState(false);
   async function submit(e:React.FormEvent){
     e.preventDefault();setMessage("");
     if((mode==="signup"||recovery)&&password.length<8){setMessage("Use at least 8 characters for your password.");return;}
@@ -230,22 +231,23 @@ function AuthScreen({recovery,onRecoveryDone,onBack}:{recovery:boolean;onRecover
     setBusy(true);
     try{
       if(recovery){const {error}=await supabase.auth.updateUser({password});if(error)throw error;setMessage("Password updated.");onRecoveryDone();return;}
-      if(mode==="forgot"){const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:window.location.origin});if(error)throw error;setMessage("Check your email for a secure password reset link.");return;}
-      if(mode==="signup"){const {data,error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:window.location.origin}});if(error)throw error;if(!data.session)setMessage("Check your email to verify your account, then log in.");return;}
+      const voxaUrl=new URL("/",window.location.origin).toString();
+      if(mode==="forgot"){const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:voxaUrl});if(error)throw error;setMessage("Check your email for a secure password reset link.");return;}
+      if(mode==="signup"){const {data,error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:voxaUrl,data:{full_name:name.trim()}}});if(error)throw error;if(!data.session)setMessage("Check your email to verify your account, then log in.");return;}
       const {error}=await supabase.auth.signInWithPassword({email,password});if(error)throw error;
     }catch(error){setMessage(error instanceof Error?error.message:"Something went wrong. Please try again.");}finally{setBusy(false)}
   }
   const title=recovery?"Choose a new password":mode==="signup"?"Create your Voxa account":mode==="forgot"?"Reset your password":"Welcome back";
-  return <main className="auth-page"><button className="auth-back" onClick={onBack}>← Back to Voxa</button><section className="auth-card"><div className="auth-brand"><Logo/><span>Voxa</span></div><p className="eyebrow">SECURE ACCOUNT</p><h1>{title}</h1><p>{recovery?"Enter a new password for your account.":mode==="signup"?"Your communication data stays private to your account.":mode==="forgot"?"We'll send a reset link to your email.":"Log in to enter your communication space."}</p><form onSubmit={submit}>{!recovery&&<label>Email<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label>}{mode!=="forgot"&&<label>{recovery?"New password":"Password"}<input type="password" autoComplete={recovery||mode==="signup"?"new-password":"current-password"} required minLength={8} value={password} onChange={e=>setPassword(e.target.value)}/></label>}{(recovery||mode==="signup")&&<label>Confirm password<input type="password" autoComplete="new-password" required minLength={8} value={confirm} onChange={e=>setConfirm(e.target.value)}/></label>}<button className="primary" disabled={busy}>{busy?"Please wait…":recovery?"Update password":mode==="signup"?"Create account":mode==="forgot"?"Send reset link":"Log in"}</button></form>{message&&<p className="auth-message" role="status">{message}</p>}{!recovery&&<div className="auth-links">{mode!=="login"&&<button onClick={()=>{setMode("login");setMessage("")}}>Log in</button>}{mode!=="signup"&&<button onClick={()=>{setMode("signup");setMessage("")}}>Create account</button>}{mode!=="forgot"&&<button onClick={()=>{setMode("forgot");setMessage("")}}>Forgot password?</button>}</div>}<small>Encrypted in transit. Voxa only loads data belonging to your account.</small></section></main>
+  return <main className="auth-page"><button className="auth-back" onClick={onBack}>← Back to Voxa</button><section className="auth-card"><div className="auth-brand"><Logo/><span>Voxa</span></div><p className="eyebrow">SECURE ACCOUNT</p><h1>{title}</h1><p>{recovery?"Enter a new password for your account.":mode==="signup"?"Your communication data stays private to your account.":mode==="forgot"?"We'll send a reset link to your email.":"Log in to enter your communication space."}</p><form onSubmit={submit}>{mode==="signup"&&<label>Name<input type="text" autoComplete="name" required value={name} onChange={e=>setName(e.target.value)} placeholder="Your name"/></label>}{!recovery&&<label>Email<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label>}{mode!=="forgot"&&<label>{recovery?"New password":"Password"}<input type="password" autoComplete={recovery||mode==="signup"?"new-password":"current-password"} required minLength={8} value={password} onChange={e=>setPassword(e.target.value)}/></label>}{(recovery||mode==="signup")&&<label>Confirm password<input type="password" autoComplete="new-password" required minLength={8} value={confirm} onChange={e=>setConfirm(e.target.value)}/></label>}<button className="primary" disabled={busy}>{busy?"Please wait…":recovery?"Update password":mode==="signup"?"Create account":mode==="forgot"?"Send reset link":"Log in"}</button></form>{message&&<p className="auth-message" role="status">{message}</p>}{!recovery&&<div className="auth-links">{mode!=="login"&&<button onClick={()=>{setMode("login");setMessage("")}}>Log in</button>}{mode!=="signup"&&<button onClick={()=>{setMode("signup");setMessage("")}}>Create account</button>}{mode!=="forgot"&&<button onClick={()=>{setMode("forgot");setMessage("")}}>Forgot password?</button>}</div>}<small>Encrypted in transit. Voxa only loads data belonging to your account.</small></section></main>
 }
 function GuidedDemo({step,onExit,onReplay}:{step:number;onExit:()=>void;onReplay:()=>void}){
   const phrase="It's too loud and I'm feeling overwhelmed. Could I take a break?";
   return <main className="guided-demo">
     <header><span className="brand"><Logo/><span>Voxa</span></span><span className="demo-progress">Guided demo · {Math.min(step+1,6)} of 6</span><button onClick={onExit}>Exit demo <b>×</b></button></header>
     <section className="demo-stage">
-      <div className="demo-intro"><p className="eyebrow">A MOMENT AT SCHOOL</p><h1>Alex needs the room<br/>to feel a little quieter.</h1><p>Watch how a few intentional choices become a complete thought.</p></div>
+      <div className="demo-intro"><p className="eyebrow">A MOMENT AT SCHOOL</p><h1>A student needs the room<br/>to feel a little quieter.</h1><p>Watch how a few intentional choices become a complete thought.</p></div>
       <div className="demo-workspace">
-        <p className="eyebrow purple">ALEX CHOOSES</p>
+        <p className="eyebrow purple">THEY CHOOSE</p>
         <div className="guided-tiles">
           <div className={step>=1?"pressed":""}>😵<b>Overwhelmed</b>{step>=1&&<i>✓</i>}</div>
           <div className={step>=2?"pressed":""}>🔊<b>Too loud</b>{step>=2&&<i>✓</i>}</div>
