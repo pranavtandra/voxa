@@ -187,7 +187,7 @@ export default function Home() {
   }
   useEffect(()=>{
     if(!demo)return;
-    const timers=[700,1750,2800,3850,5000].map((delay,index)=>window.setTimeout(()=>setDemoStep(index+1),delay));
+    const timers=[1100,2500,3900,5600,7600].map((delay,index)=>window.setTimeout(()=>setDemoStep(index+1),delay));
     const speakTimer=window.setTimeout(()=>{if("speechSynthesis" in window){window.speechSynthesis.cancel();window.speechSynthesis.speak(new SpeechSynthesisUtterance("It's too loud and I'm feeling overwhelmed. Could I take a break?"));}},5250);
     return()=>{timers.forEach(clearTimeout);clearTimeout(speakTimer)};
   },[demo]);
@@ -291,7 +291,7 @@ function GuidedDemo({step,onExit,onReplay}:{step:number;onExit:()=>void;onReplay
         </div>
         <button className={`demo-create ${step>=4?"pressed":""}`}>✦ Create message</button>
         <div className={`guided-message ${step>=4?"show":""}`}><p className="eyebrow mint">VOXA SUGGESTS</p><blockquote>“{phrase}”</blockquote><div className="guided-speak-row"><button className={step>=5?"speaking":""}>▶ {step>=5?"Speaking…":"Speak"}</button></div></div>
-        <div className={`demo-cursor step-${step}`} aria-hidden><span/><i/></div>
+        <div key={step} className={`demo-cursor step-${step}`} aria-hidden><span>↖</span><i/></div>
       </div>
       {step>=5&&<div className="demo-finish"><b>A complete thought in a few taps.</b><button onClick={onReplay}>↻ Replay</button><button onClick={onExit}>Try Voxa →</button></div>}
     </section>
