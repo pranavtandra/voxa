@@ -18,6 +18,9 @@ test("Voxa exposes the complete email account lifecycle", async () => {
   assert.match(page, /profile_complete/);
   assert.match(page, /SET UP YOUR PROFILE/);
   assert.match(page, /full_name/);
+  assert.match(page, /Show password/);
+  assert.match(page, /At least one number/);
+  assert.match(page, /At least one special character/);
   assert.match(client, /persistSession:\s*true/);
 });
 
