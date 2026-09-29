@@ -260,8 +260,16 @@ function AuthScreen({recovery,onRecoveryDone,onBack}:{recovery:boolean;onRecover
     try{
       if(recovery){const {error}=await supabase.auth.updateUser({password});if(error)throw error;setMessage("Password updated.");onRecoveryDone();return;}
       const voxaUrl=new URL("/",window.location.origin).toString();
-      if(mode==="forgot"){const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:voxaUrl});if(error)throw error;setMessage("Check your email for a secure password reset link.");return;}
-      if(mode==="signup"){const {data,error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:voxaUrl,data:{full_name:name.trim()}}});if(error)throw error;if(!data.session)setMessage("Check your email to verify your account, then log in.");return;}
+      if(mode==="forgot"){const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:voxaUrl});if(error)throw error;setMessage("If an account exists for that email, we sent a secure password reset link. Check your inbox and spam folder.");return;}
+      if(mode==="signup"){
+        const {data,error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:voxaUrl,data:{full_name:name.trim()}}});
+        const existingError=error&&(["email_exists","user_already_exists"].includes(error.code||"")||/already (registered|exists)/i.test(error.message));
+        const existingIdentity=data.user&&Array.isArray(data.user.identities)&&data.user.identities.length===0;
+        if(existingError||existingIdentity){setMode("login");setPassword("");setConfirm("");setMessage("An account already exists for that email. Log in, or use Forgot password? to reset it.");return;}
+        if(error)throw error;
+        if(!data.session)setMessage("Check your email to verify your account, then log in.");
+        return;
+      }
       const {error}=await supabase.auth.signInWithPassword({email,password});if(error)throw error;
     }catch(error){setMessage(error instanceof Error?error.message:"Something went wrong. Please try again.");}finally{setBusy(false)}
   }
