@@ -291,7 +291,7 @@ function GuidedDemo({step,onExit,onReplay}:{step:number;onExit:()=>void;onReplay
         </div>
         <button className={`demo-create ${step>=4?"pressed":""}`}>✦ Create message</button>
         <div className={`guided-message ${step>=4?"show":""}`}><p className="eyebrow mint">VOXA SUGGESTS</p><blockquote>“{phrase}”</blockquote><div className="guided-speak-row"><button className={step>=5?"speaking":""}>▶ {step>=5?"Speaking…":"Speak"}</button></div></div>
-        <div key={step} className={`demo-cursor step-${step}`} aria-hidden><img src="/cursor.svg" alt=""/><i/></div>
+        <div className={`demo-cursor step-${step}`} aria-hidden><img src="/cursor.svg" alt=""/><i key={step}/></div>
       </div>
       {step>=5&&<div className="demo-finish"><b>A complete thought in a few taps.</b><button onClick={onReplay}>↻ Replay</button><button onClick={onExit}>Try Voxa →</button></div>}
     </section>
