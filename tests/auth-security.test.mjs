@@ -11,6 +11,9 @@ test("Voxa exposes the complete email account lifecycle", async () => {
   ]);
   assert.match(page, /auth\.signUp/);
   assert.match(page, /auth\.signInWithPassword/);
+  assert.match(page, /auth\.signInWithOAuth\(\{provider:"google"/);
+  assert.match(page, /Continue with Google/);
+  assert.match(page, /redirectTo/);
   assert.match(page, /auth\.resetPasswordForEmail/);
   assert.match(page, /data\.user\.identities/);
   assert.match(page, /An account already exists for that email/);
