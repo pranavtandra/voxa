@@ -168,6 +168,7 @@ export default function Home() {
   function addRoutine(e:React.FormEvent){e.preventDefault();if(!routineName.trim()||!routinePhrases.length)return;setRoutines(x=>[...x,{id:crypto.randomUUID(),name:routineName.trim(),emoji:"✦",phrases:routinePhrases}]);setRoutineName("");setRoutinePhrases([]);setAddingRoutine(false)}
   function startDemo(){setDemo(true);setDemoStep(0)}
   function exitDemo(){window.speechSynthesis?.cancel();setDemo(false);setDemoStep(0);setEntered(false);setPage("Communicate")}
+  function enterFromDemo(){window.speechSynthesis?.cancel();setDemo(false);setDemoStep(0);setPage("Communicate");setEntered(true);if(!session)setAuthOpen(true)}
   async function saveProfile(e:React.FormEvent,finishOnboarding=false){
     e.preventDefault();setProfileMessage("");
     const cleanName=profileName.trim();if(!cleanName){setProfileMessage("Enter your name to continue.");return;}
@@ -192,7 +193,7 @@ export default function Home() {
     return()=>{timers.forEach(clearTimeout);clearTimeout(speakTimer)};
   },[demo]);
 
-  if(demo) return <GuidedDemo step={demoStep} onExit={exitDemo} onReplay={()=>{setDemoStep(0);setDemo(false);setTimeout(()=>setDemo(true),30)}}/>;
+  if(demo) return <GuidedDemo step={demoStep} onExit={exitDemo} onTry={enterFromDemo} onReplay={()=>{setDemoStep(0);setDemo(false);setTimeout(()=>setDemo(true),30)}}/>;
   if(!authReady)return <main className="auth-page"><div className="auth-card"><Logo/><p>Loading Voxa…</p></div></main>;
   if(authOpen||(!session&&entered))return <AuthScreen recovery={recovery} onRecoveryDone={()=>{setRecovery(false);setAuthOpen(false);setEntered(true)}} onBack={()=>{setAuthOpen(false);setEntered(false)}}/>;
   if(!entered) return <Landing user={session?.user||null} onEnter={()=>session?setEntered(true):setAuthOpen(true)} onDemo={startDemo}/>;
@@ -276,7 +277,7 @@ function AuthScreen({recovery,onRecoveryDone,onBack}:{recovery:boolean;onRecover
   const title=recovery?"Choose a new password":mode==="signup"?"Create your Voxa account":mode==="forgot"?"Reset your password":"Welcome back";
   return <main className="auth-page"><button className="auth-back" onClick={onBack}>← Back to Voxa</button><section className="auth-card"><div className="auth-brand"><Logo/><span>Voxa</span></div><p className="eyebrow">SECURE ACCOUNT</p><h1>{title}</h1><p>{recovery?"Enter a new password for your account.":mode==="signup"?"Your communication data stays private to your account.":mode==="forgot"?"We'll send a reset link to your email.":"Log in to enter your communication space."}</p><form onSubmit={submit}>{mode==="signup"&&<label>Name<input type="text" autoComplete="name" required value={name} onChange={e=>setName(e.target.value)} placeholder="Your name"/></label>}{!recovery&&<label>Email<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label>}{mode!=="forgot"&&<label>{recovery?"New password":"Password"}<span className="password-field"><input type={showPassword?"text":"password"} autoComplete={recovery||mode==="signup"?"new-password":"current-password"} required minLength={8} value={password} onChange={e=>setPassword(e.target.value)}/><button type="button" onClick={()=>setShowPassword(value=>!value)} aria-label={showPassword?"Hide password":"Show password"} aria-pressed={showPassword}>{showPassword?"Hide":"Show"}</button></span></label>}{(recovery||mode==="signup")&&<ul className="password-requirements" aria-label="Password requirements" aria-live="polite"><li className={passwordChecks.length?"met":""}><span aria-hidden>{passwordChecks.length?"✓":""}</span>At least 8 characters</li><li className={passwordChecks.number?"met":""}><span aria-hidden>{passwordChecks.number?"✓":""}</span>At least one number</li><li className={passwordChecks.special?"met":""}><span aria-hidden>{passwordChecks.special?"✓":""}</span>At least one special character</li></ul>}{(recovery||mode==="signup")&&<label>Confirm password<span className="password-field"><input type={showConfirm?"text":"password"} autoComplete="new-password" required minLength={8} value={confirm} onChange={e=>setConfirm(e.target.value)}/><button type="button" onClick={()=>setShowConfirm(value=>!value)} aria-label={showConfirm?"Hide confirmed password":"Show confirmed password"} aria-pressed={showConfirm}>{showConfirm?"Hide":"Show"}</button></span></label>}<button className="primary" disabled={busy}>{busy?"Please wait…":recovery?"Update password":mode==="signup"?"Create account":mode==="forgot"?"Send reset link":"Log in"}</button></form>{message&&<p className="auth-message" role="status">{message}</p>}{!recovery&&<div className="auth-links">{mode!=="login"&&<button onClick={()=>{setMode("login");setMessage("")}}>Log in</button>}{mode!=="signup"&&<button onClick={()=>{setMode("signup");setMessage("")}}>Create account</button>}{mode!=="forgot"&&<button onClick={()=>{setMode("forgot");setMessage("")}}>Forgot password?</button>}</div>}<small>Encrypted in transit. Voxa only loads data belonging to your account.</small></section></main>
 }
-function GuidedDemo({step,onExit,onReplay}:{step:number;onExit:()=>void;onReplay:()=>void}){
+function GuidedDemo({step,onExit,onTry,onReplay}:{step:number;onExit:()=>void;onTry:()=>void;onReplay:()=>void}){
   const phrase="It's too loud and I'm feeling overwhelmed. Could I take a break?";
   return <main className="guided-demo">
     <header><span className="brand"><Logo/><span>Voxa</span></span><span className="demo-progress">Guided demo · {Math.min(step+1,6)} of 6</span><button onClick={onExit}>Exit demo <b>×</b></button></header>
@@ -293,7 +294,7 @@ function GuidedDemo({step,onExit,onReplay}:{step:number;onExit:()=>void;onReplay
         <div className={`guided-message ${step>=4?"show":""}`}><p className="eyebrow mint">VOXA SUGGESTS</p><blockquote>“{phrase}”</blockquote><div className="guided-speak-row"><button className={step>=5?"speaking":""}>▶ {step>=5?"Speaking…":"Speak"}</button></div></div>
         <div className={`demo-cursor step-${step}`} aria-hidden><img src="/cursor.svg" alt=""/><i key={step}/></div>
       </div>
-      {step>=5&&<div className="demo-finish"><b>A complete thought in a few taps.</b><button onClick={onReplay}>↻ Replay</button><button onClick={onExit}>Try Voxa →</button></div>}
+      {step>=5&&<div className="demo-finish"><b>A complete thought in a few taps.</b><button onClick={onReplay}>↻ Replay</button><button onClick={onTry}>Try Voxa →</button></div>}
     </section>
   </main>
 }
