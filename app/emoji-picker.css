@@ -14,6 +14,16 @@
 .emoji-launch b { font-size: 30px; }
 .emoji-launch span { font-weight: 800; }
 .emoji-launch i { font-style: normal; color: var(--mint-dark); font-size: 20px; }
+.custom-image-upload { position: relative; display: grid; grid-template-columns: 52px 1fr; align-items: center; gap: 12px; padding: 10px 14px; border: 1px dashed #9bbdb3; border-radius: 12px; background: #f4faf7; cursor: pointer; }
+.custom-image-upload > b { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 10px; background: white; color: var(--mint-dark); font-size: 24px; }
+.custom-image-upload > img { width: 46px; height: 46px; object-fit: cover; border-radius: 10px; }
+.custom-image-upload > span { display: grid; gap: 3px; font-weight: 800; }
+.custom-image-upload small { color: var(--muted); font-weight: 400; }
+.custom-image-upload input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.custom-image-upload:focus-within { border-color: var(--mint-dark); box-shadow: 0 0 0 3px #78a99b20; }
+.remove-custom-image { justify-self: start; border: 0; background: none; padding: 0; color: #9b3540; font-size: 12px; font-weight: 800; }
+.image-error { margin: -4px 0 0; padding: 10px 12px; border-radius: 9px; background: #fff0f1; color: #8b2f38; font-size: 12px; }
+.comm-card .card-image { width: 58px; height: 58px; object-fit: cover; border-radius: 14px; box-shadow: 0 3px 10px #18352c20; }
 
 .emoji-screen {
   position: fixed;
