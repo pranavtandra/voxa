@@ -23,6 +23,7 @@ button:disabled { cursor: not-allowed; }
 .hero-demo { width: 100%; max-width: 570px; justify-self: end; }
 .how article, .feature-grid article { box-shadow: var(--shadow-soft); }
 .how article > span, .feature-grid article > span { align-items: center; justify-content: center; }
+.feature-grid article > span { margin-bottom: 14px; }
 .about { display: flex; flex-direction: column; align-items: center; }
 
 /* Signed-in shell */
