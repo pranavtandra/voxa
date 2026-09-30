@@ -45,6 +45,8 @@
 .emoji-search { display: flex; align-items: center; gap: 12px; background: white; border: 1px solid var(--line); border-radius: 15px; padding: 0 18px; margin-bottom: 16px; }
 .emoji-search span { font-size: 25px; color: var(--muted); }
 .emoji-search input { width: 100%; border: 0; background: transparent; padding: 16px 0; font-size: 16px; outline: 0; }
+.emoji-screen .emoji-search input:focus-visible { outline: none; }
+.emoji-search:focus-within { border-color: #78a99b; box-shadow: 0 0 0 3px #78a99b20; }
 .emoji-screen > nav { display: flex; gap: 8px; overflow: auto; padding: 2px 2px 18px; }
 .emoji-screen > nav button { border: 1px solid var(--line); background: white; border-radius: 99px; padding: 9px 14px; font-size: 12px; font-weight: 800; white-space: nowrap; }
 .emoji-screen > nav button.selected { color: white; background: var(--mint-dark); border-color: var(--mint-dark); }
