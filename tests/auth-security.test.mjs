@@ -37,3 +37,13 @@ test("Voxa user data is protected by owner-scoped RLS", async () => {
   assert.equal((sql.match(/\(select auth\.uid\(\)\) = user_id/g) || []).length, 5);
   assert.match(sql, /for update[\s\S]+using[\s\S]+with check/i);
 });
+
+test("guest access stays local-only and does not create a Supabase identity", async () => {
+  const page = await readFile(new URL("app/page.tsx", root), "utf8");
+  assert.match(page, /Continue as guest/);
+  assert.match(page, /const persist=!guest/);
+  assert.match(page, /if\(!persist\)return;if\(skipNextWrite\.current\)/);
+  assert.match(page, /if\(!persist\|\|!userId\)/);
+  assert.match(page, /if\(guest\)\{setMessage\(fallback\)/);
+  assert.doesNotMatch(page, /signInAnonymously/);
+});
