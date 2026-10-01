@@ -142,6 +142,55 @@ button:disabled { cursor: not-allowed; }
 
 
 @media (max-width: 900px) {
+  .landing-nav nav { display: none; }
+  .hero { grid-template-columns: 1fr; gap: 44px; padding-top: 52px; }
+  .hero-copy { max-width: 690px; }
+  .hero-demo { justify-self: center; }
+  .features { grid-template-columns: 1fr; gap: 35px; }
+  .landing footer { grid-template-columns: 1fr 1fr; }
+  .landing footer > small { grid-column: 1 / -1; }
+  .desktop-nav button:nth-child(n+5) { display: none; }
+  .account-name { max-width: 100px; }
+  .communicate { grid-template-columns: 72px minmax(0, 1fr) 300px; }
+  .board { padding: 24px 18px; }
+  .card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .message-panel { padding: 20px 16px; }
+}
+
+@media (max-width: 760px) {
+  .landing-nav { height: 72px; padding-inline: 18px; }
+  .landing-nav .brand { font-size: 21px; }
+  .hero { min-height: 0; padding: 44px 20px 58px; }
+  .hero::before { width: 420px; height: 420px; right: -250px; }
+  .hero h1 { font-size: clamp(55px, 17vw, 72px); letter-spacing: -3px; }
+  .hero-copy > p { font-size: 17px; }
+  .hero-copy > div { align-items: stretch; }
+  .hero-copy > div button { flex: 1 1 155px; }
+  .hero-copy small { display: block; line-height: 1.5; }
+  .hero-demo { padding: 17px; border-radius: 21px; }
+  .demo-choices > span { height: 86px; }
+  .trust { height: auto; min-height: 74px; padding: 18px; text-align: center; }
+  .how, .about { padding: 72px 20px; }
+  .how h2, .features h2, .about h2 { font-size: 40px; }
+  .how > div:not(.flow) { margin-top: 34px; }
+  .flow { width: 100%; overflow: hidden; }
+  .features { padding: 72px 20px; }
+  .landing footer { grid-template-columns: 1fr; gap: 30px; }
+  .landing footer > small { grid-column: auto; }
+  .topbar { height: 64px; gap: 8px; padding-inline: 12px; }
+  .topbar .brand { font-size: 20px; padding-right: 0; }
+  .topbar .brand .logo { width: 34px; height: 34px; }
+  .top-actions { margin-left: auto; gap: 7px; }
+  .account-button { padding-right: 5px; gap: 6px; }
+  .account-name { max-width: 70px; }
+  .logout { white-space: nowrap; }
+  .communicate { display: block; padding-bottom: 72px; }
+  .categories { top: 64px; scrollbar-width: none; scroll-snap-type: x proximity; }
+  .categories::-webkit-scrollbar { display: none; }
+  .categories button { scroll-snap-align: start; }
+  .board { padding: 24px 16px; }
+  .board-head { align-items: flex-start; margin-bottom: 20px; }
+  .board-head h1 { font-size: 30px; }
   .card-grid, .size-extra-large { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .comm-card { min-width: 0; }
   .message-panel { padding: 24px 16px 28px; }
