@@ -25,5 +25,14 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    "build",
+    "db",
+    "drizzle.config.ts",
+    "examples",
+    "supabase/functions",
+    "vite.config.ts",
+    "worker"
+  ]
 }
