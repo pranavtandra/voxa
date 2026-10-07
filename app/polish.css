@@ -279,3 +279,38 @@ button:disabled { cursor: not-allowed; }
 .guest-private i { background: #d39a21; }
 .guest-account { cursor: default; }
 .guest-account:hover { background: transparent; border-color: transparent; }
+
+
+/* Profile setup — keep native form controls visually consistent across browsers. */
+.profile-setup { padding: clamp(20px, 4vw, 56px); }
+.profile-setup > section { width: min(820px, 100%); padding: clamp(28px, 5vw, 52px); border-color: #d5dfda; border-radius: 30px; box-shadow: 0 28px 80px #18352c17; }
+.profile-setup .auth-brand { margin-bottom: 38px; }
+.profile-setup h1 { margin: 10px 0 12px; font-size: clamp(39px, 5vw, 52px); line-height: 1.05; letter-spacing: -1.5px; }
+.profile-setup > section > p:not(.eyebrow) { max-width: 650px; margin: 0; font-size: 16px; }
+.profile-setup form { gap: 22px; margin-top: 32px; }
+.profile-setup label { gap: 9px; font-size: 14px; line-height: 1.2; }
+.profile-setup input, .profile-setup select { display: block; width: 100%; height: 52px; min-height: 52px; margin: 0; border: 1px solid #cbd7d2; border-radius: 13px; background-color: #fff; padding: 0 16px; font-size: 15px; font-weight: 650; line-height: 1.2; box-shadow: 0 1px 2px #18352c08; transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease; }
+.profile-setup select { appearance: auto; padding-right: 40px; cursor: pointer; }
+.profile-setup input:hover, .profile-setup select:hover { border-color: #9fb5ad; background-color: #fcfdfc; }
+.profile-setup input:focus, .profile-setup select:focus { border-color: var(--mint-dark); box-shadow: 0 0 0 4px #286d6117; }
+.profile-setup select:disabled { cursor: not-allowed; color: #82908c; background-color: #f2f5f3; }
+.profile-setup .setup-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.profile-setup .setup-toggle { min-height: 78px; padding: 14px 16px; border-color: #cbd7d2; border-radius: 13px; background: #f8faf8; }
+.profile-setup .setup-toggle span { gap: 5px; font-size: 14px; }
+.profile-setup form > .primary { width: 100%; min-height: 54px; margin-top: 2px; border-radius: 14px; font-size: 16px; box-shadow: 0 12px 28px #182d2b24; transition: transform .18s ease, box-shadow .18s ease, background-color .18s ease; }
+.profile-setup form > .primary:hover { transform: translateY(-1px); background: #23403d; box-shadow: 0 15px 32px #182d2b2b; }
+@media (max-width: 640px) { .profile-setup { padding: 14px; align-items: start; } .profile-setup > section { padding: 25px 20px; border-radius: 22px; } .profile-setup .auth-brand { margin-bottom: 28px; } .profile-setup h1 { font-size: 38px; letter-spacing: -1px; } .profile-setup > section > p:not(.eyebrow) { font-size: 15px; } .profile-setup form { margin-top: 26px; gap: 18px; } .profile-setup .setup-grid { grid-template-columns: 1fr; gap: 18px; } .profile-setup .setup-toggle { min-height: 72px; } }
+/* Public legal pages used by OAuth branding and linked from Voxa. */
+.legal-page { min-height: 100vh; padding: clamp(24px, 6vw, 72px) 18px; background: linear-gradient(145deg, #f6f3ed, #eaf4f0); }
+.legal-page article { width: min(760px, 100%); margin: 0 auto; padding: clamp(28px, 6vw, 58px); border: 1px solid #d5dfda; border-radius: 28px; background: #fff; box-shadow: 0 24px 70px #18352c14; }
+.legal-brand { display: inline-flex; align-items: center; gap: 11px; margin-bottom: 46px; color: var(--ink); text-decoration: none; font-size: 23px; }
+.legal-page h1 { margin: 10px 0 8px; font: 500 clamp(38px, 7vw, 58px)/1.04 Georgia, serif; letter-spacing: -1.8px; }
+.legal-updated { margin: 0 0 38px; color: var(--muted); font-size: 13px; }
+.legal-page section { padding: 23px 0; border-top: 1px solid var(--line); }
+.legal-page section h2 { margin: 0 0 8px; font: 500 23px/1.2 Georgia, serif; }
+.legal-page section p { margin: 0; color: #536663; font-size: 15px; line-height: 1.7; }
+.legal-page footer { display: flex; flex-wrap: wrap; gap: 18px; padding-top: 25px; border-top: 1px solid var(--line); }
+.legal-page footer a { color: var(--mint-dark); font-size: 14px; font-weight: 800; text-decoration: none; }
+.legal-page footer a:hover { text-decoration: underline; }
+@media (max-width: 520px) { .legal-page article { border-radius: 20px; } .legal-brand { margin-bottom: 34px; } }
+  
