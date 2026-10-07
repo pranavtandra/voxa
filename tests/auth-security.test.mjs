@@ -20,6 +20,13 @@ test("Voxa exposes the complete email account lifecycle", async () => {
   assert.match(page, /If an account exists for that email/);
   assert.match(page, /auth\.updateUser/);
   assert.match(page, /auth\.signOut/);
+  assert.match(page, /auth\.signOut\(\{scope:"local"\}\)/, "logout should end the current browser session");
+  assert.match(page, /Logging out…/, "logout should prevent duplicate clicks while the request is active");
+  assert.match(page, /upsert\(accountData,\{onConflict:"user_id,key"\}\)/, "logout should flush pending account data before ending the session");
+  assert.match(page, /Voxa couldn't save your latest changes/, "a failed final sync should keep the user logged in");
+  assert.match(page, /const localKey=userId\?`\$\{key\}:\$\{userId\}`/, "local caches should be isolated by account id");
+  assert.match(page, /key:"voxa-custom",value:next/, "custom buttons should be confirmed by Supabase before the editor closes");
+  assert.match(page, /savingWord\?"Saving…":"Add word"/, "custom button saves should expose their pending state");
   assert.match(page, /PASSWORD_RECOVERY/);
   assert.match(page, /profile_complete/);
   assert.match(page, /SET UP YOUR PROFILE/);
