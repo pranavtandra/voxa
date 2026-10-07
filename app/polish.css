@@ -4,12 +4,14 @@
   --shadow-soft: 0 10px 30px #18352c0b;
 }
 
+
 body { line-height: 1.45; }
 button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 button { transition: background-color .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease; }
 button:disabled { cursor: not-allowed; }
 .primary:hover:not(:disabled), .nav-cta:hover, .logout:hover { transform: translateY(-1px); box-shadow: 0 9px 22px #182d2b26; }
 .outline:hover:not(:disabled), .watch:hover { border-color: #9db2aa; background: #f8faf8; }
+
 
 /* Public experience */
 .landing-nav { width: min(100%, 1220px); }
@@ -26,6 +28,7 @@ button:disabled { cursor: not-allowed; }
 .feature-grid article > span { margin-bottom: 14px; }
 .about { display: flex; flex-direction: column; align-items: center; }
 
+
 /* Signed-in shell */
 .topbar { width: 100%; min-width: 0; }
 .topbar .brand { flex: 0 0 auto; }
@@ -38,6 +41,7 @@ button:disabled { cursor: not-allowed; }
 .page > .eyebrow, .page > h1, .page > .page-sub { display: block; }
 .page-sub { margin-top: 0; }
 .page > .danger { float: none; display: block; margin: -66px auto 28px; text-align: right; }
+
 
 /* Communication board */
 .communicate { grid-template-columns: 210px minmax(0, 1fr) minmax(330px, 370px); }
@@ -61,6 +65,7 @@ button:disabled { cursor: not-allowed; }
 .inline-maker > div button, .routine-maker > div button { flex: 0 0 auto; }
 .emoji-launch, .custom-image-upload { min-width: 0; }
 .emoji-launch span, .custom-image-upload > span { min-width: 0; overflow-wrap: anywhere; }
+
 
 /* App sections */
 .conversation, .routine-player { margin-left: auto; margin-right: auto; }
@@ -89,6 +94,7 @@ button:disabled { cursor: not-allowed; }
 .setting select { min-width: 0; }
 .notice { line-height: 1.55; }
 
+
 /* Profile, setup, authentication, and dialogs */
 .auth-card, .profile-setup > section { overflow: hidden; }
 .auth-brand { align-items: center; }
@@ -112,6 +118,7 @@ button:disabled { cursor: not-allowed; }
 .delete-dialog { max-height: calc(100vh - 36px); overflow: auto; }
 .delete-dialog > div { flex-wrap: wrap; }
 
+
 /* Emoji and guided demo */
 .emoji-screen > header > div { min-width: 0; }
 .emoji-screen h1 { overflow-wrap: anywhere; }
@@ -120,6 +127,7 @@ button:disabled { cursor: not-allowed; }
 .demo-stage { width: 100%; }
 .guided-tiles > div { min-width: 0; text-align: center; }
 .guided-message blockquote { overflow-wrap: anywhere; }
+
 
 @media (max-width: 1180px) {
   .topbar { gap: 14px; padding-inline: 16px; }
@@ -131,6 +139,7 @@ button:disabled { cursor: not-allowed; }
   .categories button { justify-content: center; }
   .categories button span { width: 100%; font-size: 18px; }
 }
+
 
 @media (max-width: 900px) {
   .landing-nav nav { display: none; }
@@ -168,7 +177,6 @@ button:disabled { cursor: not-allowed; }
   .features { padding: 72px 20px; }
   .landing footer { grid-template-columns: 1fr; gap: 30px; }
   .landing footer > small { grid-column: auto; }
-
   .topbar { height: 64px; gap: 8px; padding-inline: 12px; }
   .topbar .brand { font-size: 20px; padding-right: 0; }
   .topbar .brand .logo { width: 34px; height: 34px; }
@@ -216,6 +224,7 @@ button:disabled { cursor: not-allowed; }
   .setting > select, .setting > button, .setting select { flex: none; width: 100%; max-width: 100%; min-width: 0; }
   .setting .toggle { align-self: flex-start; width: 43px; }
 
+
   .profile-setup { padding: 18px 14px; align-items: start; }
   .profile-setup > section { padding: 24px 20px; }
   .setup-grid { gap: 12px; }
@@ -227,6 +236,7 @@ button:disabled { cursor: not-allowed; }
   .delete-dialog { padding: 26px 20px 20px; }
   .delete-dialog > div button { flex: 1 1 140px; }
 
+
   .emoji-screen > header { grid-template-columns: 46px minmax(0, 1fr) 50px; }
   .emoji-screen > header > button { width: 46px; min-height: 44px; }
   .emoji-current { width: 50px; overflow: hidden; }
@@ -235,6 +245,7 @@ button:disabled { cursor: not-allowed; }
   .guided-demo > header .brand { font-size: 20px; }
   .demo-workspace { margin-top: 25px; }
 }
+
 
 @media (max-width: 440px) {
   .nav-cta { padding: 10px 13px; }
@@ -268,7 +279,6 @@ button:disabled { cursor: not-allowed; }
 .guest-private i { background: #d39a21; }
 .guest-account { cursor: default; }
 .guest-account:hover { background: transparent; border-color: transparent; }
-
 /* Profile setup — keep native form controls visually consistent across browsers. */
 .profile-setup {
   padding: clamp(20px, 4vw, 56px);
