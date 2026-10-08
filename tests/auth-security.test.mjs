@@ -27,6 +27,9 @@ test("Voxa exposes the complete email account lifecycle", async () => {
   assert.match(page, /const localKey=userId\?`\$\{key\}:\$\{userId\}`/, "local caches should be isolated by account id");
   assert.match(page, /key:"voxa-custom",value:next/, "custom buttons should be confirmed by Supabase before the editor closes");
   assert.match(page, /savingWord\?"Saving…":"Add word"/, "custom button saves should expose their pending state");
+  assert.match(page, /async function recordHistory/, "spoken messages should use an explicit persistence path");
+  assert.match(page, /key:"voxa-history",value:merged/, "spoken history should be saved immediately to Supabase");
+  assert.match(page, /remote\.filter\(item=>item\.id!==entry\.id\)/, "history saves should merge with the latest cloud copy");
   assert.match(page, /PASSWORD_RECOVERY/);
   assert.match(page, /profile_complete/);
   assert.match(page, /SET UP YOUR PROFILE/);
