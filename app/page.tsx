@@ -342,15 +342,25 @@ function GuidedDemo({step,onExit,onTry,onReplay}:{step:number;onExit:()=>void;on
 function Landing({user,onEnter,onDemo}:{user:User|null;onEnter:()=>void;onDemo:()=>void}){
   const [leaving,setLeaving]=useState(false);
   const transitionTimer=useRef<number|null>(null);
-  useEffect(()=>()=>{if(transitionTimer.current!==null)window.clearTimeout(transitionTimer.current)},[]);
+  const scrollFrame=useRef<number|null>(null);
+  useEffect(()=>()=>{if(transitionTimer.current!==null)window.clearTimeout(transitionTimer.current);if(scrollFrame.current!==null)window.cancelAnimationFrame(scrollFrame.current)},[]);
   function handleEnter(){
     if(leaving)return;
     if(window.matchMedia("(prefers-reduced-motion: reduce)").matches){onEnter();return;}
     setLeaving(true);
     transitionTimer.current=window.setTimeout(onEnter,460);
   }
+  function handleNav(event:React.MouseEvent<HTMLAnchorElement>,targetId:string){
+    event.preventDefault();
+    const target=document.getElementById(targetId);if(!target)return;
+    if(scrollFrame.current!==null)window.cancelAnimationFrame(scrollFrame.current);
+    if(window.matchMedia("(prefers-reduced-motion: reduce)").matches){target.scrollIntoView();history.replaceState(null,"",`#${targetId}`);return;}
+    const from=window.scrollY;const distance=target.getBoundingClientRect().top+from-from;const duration=Math.min(1000,Math.max(600,Math.abs(distance)*.42));const started=performance.now();
+    const step=(now:number)=>{const progress=Math.min(1,(now-started)/duration);const eased=1-Math.pow(1-progress,4);window.scrollTo(0,from+distance*eased);if(progress<1)scrollFrame.current=window.requestAnimationFrame(step);else{scrollFrame.current=null;history.replaceState(null,"",`#${targetId}`)}};
+    scrollFrame.current=window.requestAnimationFrame(step);
+  }
   return <main className={`landing ${leaving?"landing-leaving":""}`} aria-busy={leaving}>
-  <header className="landing-nav"><button className="brand"><Logo/><span>Voxa</span></button><nav><a href="#how">How it works</a><a href="#features">Features</a><a href="#about">About</a><a href="#privacy">Privacy</a></nav><button className="nav-cta" onClick={handleEnter} disabled={leaving}>{user?"Open Voxa":"Log in"} →</button></header>
+  <header className="landing-nav"><button className="brand"><Logo/><span>Voxa</span></button><nav><a href="#how" onClick={event=>handleNav(event,"how")}>How it works</a><a href="#features" onClick={event=>handleNav(event,"features")}>Features</a><a href="#about" onClick={event=>handleNav(event,"about")}>About</a><a href="#privacy" onClick={event=>handleNav(event,"privacy")}>Privacy</a></nav><button className="nav-cta" onClick={handleEnter} disabled={leaving}>{user?"Open Voxa":"Log in"} →</button></header>
   <section className="hero"><div className="hero-copy"><span className="pill">● Communication, made clearer</span><h1>Find your<br/><em>words.</em></h1><p>Voxa helps people communicate through simple visual choices, personalized phrases, and intelligent language assistance.</p><div><button className="primary" onClick={handleEnter} disabled={leaving}>{user?"Open Voxa":"Get started"} <span>→</span></button><button className="watch" onClick={onDemo} disabled={leaving}>▶ Watch demo</button></div><small>Private by default · Secure account required for the app</small></div>
     <div className="hero-demo"><div className="demo-top"><div><Logo/><span><b>Building a message</b><small>Tap what you mean</small></span></div><i>•••</i></div><p className="eyebrow purple">YOUR CHOICES</p><div className="demo-choices"><span>👤 <b>I</b><small>1</small></span><span>☝️ <b>want</b><small>2</small></span><span>💧 <b>water</b><small>3</small></span></div><div className="connector"><i/><b>✦</b><i/></div><div className="demo-message"><p className="eyebrow mint">VOXA SUGGESTS</p><h3>“Could I have some water, please?”</h3><button aria-label="Speak message">▶</button><small>You chose the meaning. Voxa helped with the words.</small></div></div>
   </section>
