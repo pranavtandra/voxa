@@ -103,3 +103,20 @@ test("sentence generation requires a verified user and bounded input", async () 
   assert.match(route, /body\.selections\.length > MAX_CONCEPTS/);
   assert.match(route, /"cache-control": "no-store"/);
 });
+
+test("deployment responses use defensive browser headers and strict CORS", async () => {
+  const [vercel, worker, edgeFunction] = await Promise.all([
+    readFile(new URL("vercel.json", root), "utf8"),
+    readFile(new URL("worker/index.ts", root), "utf8"),
+    readFile(new URL("supabase/functions/delete-account/index.ts", root), "utf8"),
+  ]);
+  for (const config of [vercel, worker]) {
+    assert.match(config, /Content-Security-Policy/);
+    assert.match(config, /frame-ancestors 'none'/);
+    assert.match(config, /X-Content-Type-Options/);
+    assert.match(config, /Permissions-Policy/);
+  }
+  assert.doesNotMatch(edgeFunction, /"Access-Control-Allow-Origin": "\*"/);
+  assert.match(edgeFunction, /allowedOrigins\.has\(origin\)/);
+  assert.match(edgeFunction, /"Cache-Control": "no-store"/);
+});
