@@ -38,11 +38,44 @@ test("Voxa exposes the complete email account lifecycle", async () => {
 });
 
 test("Voxa user data is protected by owner-scoped RLS", async () => {
-  const sql = await readFile(new URL("supabase/migrations/20260903000000_create_voxa_user_data.sql", root), "utf8");
+  const [base, hardening] = await Promise.all([
+    readFile(new URL("supabase/migrations/20260903000000_create_voxa_user_data.sql", root), "utf8"),
+    readFile(new URL("supabase/migrations/20261008190823_harden_user_data_and_private_storage.sql", root), "utf8"),
+  ]);
+  const sql = `${base}\n${hardening}`;
   assert.match(sql, /enable row level security/i);
+  assert.match(hardening, /force row level security/i);
   assert.match(sql, /revoke all[^;]+from anon/i);
-  assert.equal((sql.match(/\(select auth\.uid\(\)\) = user_id/g) || []).length, 5);
+  assert.match(hardening, /revoke all[^;]+from anon, authenticated/i);
+  assert.match(hardening, /grant select, insert, update, delete[^;]+to authenticated/i);
+  assert.equal((hardening.match(/\(select auth\.uid\(\)\) = user_id/g) || []).length, 5);
   assert.match(sql, /for update[\s\S]+using[\s\S]+with check/i);
+});
+
+test("Voxa media storage is private and owner-scoped", async () => {
+  const [sql, media] = await Promise.all([
+    readFile(new URL("supabase/migrations/20261008190823_harden_user_data_and_private_storage.sql", root), "utf8"),
+    readFile(new URL("lib/private-media.ts", root), "utf8"),
+  ]);
+  assert.match(sql, /'voxa-user-media'[\s\S]+false/i);
+  assert.match(sql, /update storage\.buckets set public = false/i);
+  assert.equal((sql.match(/on storage\.objects for (select|insert|update|delete)/gi) || []).length, 4);
+  assert.equal((sql.match(/owner_id = \(select auth\.uid\(\)\)::text/g) || []).length, 5);
+  assert.equal((sql.match(/storage\.foldername\(name\)/g) || []).length, 5);
+  assert.match(media, /createSignedUrl\(path, SIGNED_URL_TTL_SECONDS\)/);
+  assert.doesNotMatch(media, /getPublicUrl/);
+});
+
+test("the service role credential remains server-only", async () => {
+  const [client, edgeFunction, envExample] = await Promise.all([
+    readFile(new URL("lib/supabase.ts", root), "utf8"),
+    readFile(new URL("supabase/functions/delete-account/index.ts", root), "utf8"),
+    readFile(new URL(".env.example", root), "utf8"),
+  ]);
+  assert.doesNotMatch(client, /service[_-]?role/i);
+  assert.doesNotMatch(envExample, /service[_-]?role/i);
+  assert.match(edgeFunction, /Deno\.env\.get\("SUPABASE_SERVICE_ROLE_KEY"\)/);
+  assert.doesNotMatch(edgeFunction, /NEXT_PUBLIC_[A-Z_]*SERVICE/i);
 });
 
 test("guest access stays local-only and does not create a Supabase identity", async () => {

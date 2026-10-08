@@ -32,6 +32,8 @@ Voxa combines visual communication with intelligent language assistance. Users s
 
 Voxa uses a React interface running on the Vinext/Vite Sites stack. Supabase Auth provides verified email accounts and persistent sessions, while account-owned communication data and preferences sync through row-level-security policies. The local communication engine provides reliable phrase generation without internet access. When `GEMINI_API_KEY` is configured, the server-only `/api/generate` route can ask Gemini for a natural phrasing; failures immediately fall back to the local engine. Speech uses the browser Web Speech API.
 
+User media belongs in the private `voxa-user-media` Supabase Storage bucket under a path beginning with the authenticated user's UUID. RLS restricts every object operation to its owner. Media must be served through short-lived signed URLs; Voxa never uses public bucket URLs.
+
 ## Running Voxa
 
 ```bash
