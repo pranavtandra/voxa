@@ -160,7 +160,7 @@ export default function Home() {
   async function create(){
     const fallback=generateCommunicationPhrase(selected,style); setEditing(false);
     if(guest){setMessage(fallback);setSource("local");if(autoSpeak&&tts)setTimeout(()=>speak(fallback),0);return;}
-    try{const response=await fetch("/api/generate",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({selections:selected.map(({id,label,category})=>({id,label,category})),style,language:languages.find(x=>x[0]===language)?.[1]||"English"})});if(!response.ok)throw new Error();const body=await response.json();const phrase=typeof body.phrase==="string"?body.phrase.trim():"";if(!phrase||phrase.length>280||/[{}\[\]]/.test(phrase)||/\b(id|label|category|json)\b\s*[:=]/i.test(phrase))throw new Error();setMessage(phrase);setSource("gemini");if(autoSpeak&&tts)setTimeout(()=>speak(phrase),0);}
+    try{const response=await fetch("/api/generate",{method:"POST",headers:{"content-type":"application/json","authorization":`Bearer ${session?.access_token||""}`},body:JSON.stringify({selections:selected.map(({id,label,category})=>({id,label,category})),style,language:languages.find(x=>x[0]===language)?.[1]||"English"})});if(!response.ok)throw new Error();const body=await response.json();const phrase=typeof body.phrase==="string"?body.phrase.trim():"";if(!phrase||phrase.length>280||/[{}\[\]]/.test(phrase)||/\b(id|label|category|json)\b\s*[:=]/i.test(phrase))throw new Error();setMessage(phrase);setSource("gemini");if(autoSpeak&&tts)setTimeout(()=>speak(phrase),0);}
     catch{setMessage(fallback);setSource("local");if(autoSpeak&&tts)setTimeout(()=>speak(fallback),0);}
   }
   async function recordHistory(text:string){

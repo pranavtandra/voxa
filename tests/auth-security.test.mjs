@@ -90,3 +90,16 @@ test("guest access stays local-only and does not create a Supabase identity", as
   assert.match(page, /if\(guest\)\{setMessage\(fallback\)/);
   assert.doesNotMatch(page, /signInAnonymously/);
 });
+
+test("sentence generation requires a verified user and bounded input", async () => {
+  const [page, route] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/api/generate/route.ts", root), "utf8"),
+  ]);
+  assert.match(page, /"authorization":`Bearer \$\{session\?\.access_token\|\|""\}`/);
+  assert.match(route, /client\.auth\.getUser\(token\)/);
+  assert.match(route, /errorResponse\("Unauthorized", 401\)/);
+  assert.match(route, /MAX_BODY_BYTES = 8_192/);
+  assert.match(route, /body\.selections\.length > MAX_CONCEPTS/);
+  assert.match(route, /"cache-control": "no-store"/);
+});
