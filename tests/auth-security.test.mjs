@@ -120,3 +120,14 @@ test("deployment responses use defensive browser headers and strict CORS", async
   assert.match(edgeFunction, /allowedOrigins\.has\(origin\)/);
   assert.match(edgeFunction, /"Cache-Control": "no-store"/);
 });
+
+test("automatic error reports exclude communication and identity data", async () => {
+  const reporting = await readFile(new URL("lib/error-reporting.ts", root), "utf8");
+  assert.doesNotMatch(reporting, /sendDefaultPii: true/);
+  assert.match(reporting, /maxBreadcrumbs: 0/);
+  for (const field of ["user", "request", "breadcrumbs", "contexts", "extra"]) {
+    assert.match(reporting, new RegExp(`delete event\\.${field}`));
+  }
+  assert.match(reporting, /exception\.value = "Redacted Voxa client error"/);
+  assert.doesNotMatch(reporting, /replayIntegration|browserTracingIntegration/);
+});

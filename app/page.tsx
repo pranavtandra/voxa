@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { reportError } from "@/lib/error-reporting";
 
 type Style = "direct" | "natural" | "detailed";
 type Item = { id: string; label: string; emoji: string; category: string; phrase?: string; image?: string };
@@ -92,7 +93,7 @@ function useCloudLocal<T>(key:string, initial:T, userId?:string, persist=true, a
     if(!persist||!userId){setCloudUser(undefined);return;}
     supabase.from("voxa_user_data").select("value").eq("user_id",userId).eq("key",key).maybeSingle().then(async({data,error})=>{
       if(!active)return;
-      if(error){console.error("Voxa sync load failed",error);return;}
+      if(error){reportError("sync-load");return;}
       if(data?.value!==undefined)setValue(data.value as T);
       else {setValue(initialRef.current);await supabase.from("voxa_user_data").upsert({user_id:userId,key,value:initialRef.current},{onConflict:"user_id,key"});}
       if(active)setCloudUser(userId);
@@ -101,7 +102,7 @@ function useCloudLocal<T>(key:string, initial:T, userId?:string, persist=true, a
   },[key,persist,userId,setValue]);
   useEffect(()=>{
     if(!autoSave||!persist||!userId||cloudUser!==userId)return;
-    void supabase.from("voxa_user_data").upsert({user_id:userId,key,value},{onConflict:"user_id,key"}).then(({error})=>{if(error)console.error("Voxa sync save failed",error)});
+    void supabase.from("voxa_user_data").upsert({user_id:userId,key,value},{onConflict:"user_id,key"}).then(({error})=>{if(error)reportError("sync-save")});
   },[autoSave,cloudUser,key,persist,userId,value]);
   return [value,setValue] as const;
 }
@@ -170,18 +171,18 @@ export default function Home() {
     historyRef.current=optimistic;setHistory(optimistic);
     if(!userId||guest)return;
     const {data,error:loadError}=await supabase.from("voxa_user_data").select("value").eq("user_id",userId).eq("key","voxa-history").maybeSingle();
-    if(loadError){console.error("Voxa history load failed",loadError);return;}
+    if(loadError){reportError("history-load");return;}
     const remote=Array.isArray(data?.value)?data.value as HistoryItem[]:[];
     const merged=[entry,...remote.filter(item=>item.id!==entry.id)].slice(0,100);
     const {error:saveError}=await supabase.from("voxa_user_data").upsert({user_id:userId,key:"voxa-history",value:merged},{onConflict:"user_id,key"});
-    if(saveError){console.error("Voxa history save failed",saveError);return;}
+    if(saveError){reportError("history-save");return;}
     historyRef.current=merged;setHistory(merged);
   }
   async function clearHistory(){
     historyRef.current=[];setHistory([]);
     if(!userId||guest)return;
     const {error}=await supabase.from("voxa_user_data").upsert({user_id:userId,key:"voxa-history",value:[]},{onConflict:"user_id,key"});
-    if(error)console.error("Voxa history clear failed",error);
+    if(error)reportError("history-clear");
   }
   function speak(text=message){if(!text||typeof window==="undefined"||!tts)return; window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang=language;const voice=voices.find(v=>v.name===voiceName)||voices.find(v=>v.lang.toLowerCase()===language.toLowerCase())||voices.find(v=>v.lang.toLowerCase().startsWith(language.split("-")[0].toLowerCase()));if(voice)u.voice=voice;u.onstart=()=>setSpeaking(true);u.onend=()=>setSpeaking(false);window.speechSynthesis.speak(u);void recordHistory(text);}
   function save(){if(!message)return;setPhrases(p=>p.some(x=>x.text===message)?p.filter(x=>x.text!==message):[{id:crypto.randomUUID(),text:message,favorite:true},...p]);}
