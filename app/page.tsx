@@ -320,20 +320,39 @@ function AuthScreen({recovery,onRecoveryDone,onBack,onGuest}:{recovery:boolean;o
 }
 function GuidedDemo({step,onExit,onTry,onReplay}:{step:number;onExit:()=>void;onTry:()=>void;onReplay:()=>void}){
   const phrase="It's too loud and I'm feeling overwhelmed. Could I take a break?";
+  const workspaceRef=useRef<HTMLDivElement|null>(null);
+  const tileRefs=useRef<Array<HTMLDivElement|null>>([]);
+  const createRef=useRef<HTMLButtonElement|null>(null);
+  const speakRef=useRef<HTMLButtonElement|null>(null);
+  const [cursor,setCursor]=useState({left:64,top:70});
+  useEffect(()=>{
+    const updateCursor=()=>{
+      const workspace=workspaceRef.current;
+      if(!workspace)return;
+      const target=step>=1&&step<=3?tileRefs.current[step-1]:step===4?createRef.current:step>=5?speakRef.current:null;
+      if(!target){setCursor({left:Math.max(34,workspace.clientWidth*.1),top:70});return;}
+      const workspaceBox=workspace.getBoundingClientRect();
+      const targetBox=target.getBoundingClientRect();
+      setCursor({left:targetBox.left-workspaceBox.left+targetBox.width/2,top:targetBox.top-workspaceBox.top+targetBox.height/2});
+    };
+    const frame=requestAnimationFrame(updateCursor);
+    window.addEventListener("resize",updateCursor);
+    return()=>{cancelAnimationFrame(frame);window.removeEventListener("resize",updateCursor)};
+  },[step]);
   return <main className="guided-demo">
     <header><span className="brand"><Logo/><span>Voxa</span></span><span className="demo-progress">Guided demo · {Math.min(step+1,6)} of 6</span><button onClick={onExit}>Exit demo <b>×</b></button></header>
     <section className="demo-stage">
       <div className="demo-intro"><p className="eyebrow">A MOMENT AT SCHOOL</p><h1>A student needs the room<br/>to feel a little quieter.</h1><p>Watch how a few intentional choices become a complete thought.</p></div>
-      <div className="demo-workspace">
+      <div className="demo-workspace" ref={workspaceRef}>
         <p className="eyebrow purple">THEY CHOOSE</p>
         <div className="guided-tiles">
-          <div className={step>=1?"pressed":""}>😵<b>Overwhelmed</b>{step>=1&&<i>✓</i>}</div>
-          <div className={step>=2?"pressed":""}>🔊<b>Too loud</b>{step>=2&&<i>✓</i>}</div>
-          <div className={step>=3?"pressed":""}>☁️<b>Need a break</b>{step>=3&&<i>✓</i>}</div>
+          <div ref={node=>{tileRefs.current[0]=node}} className={step>=1?"pressed":""}>😵<b>Overwhelmed</b>{step>=1&&<i>✓</i>}</div>
+          <div ref={node=>{tileRefs.current[1]=node}} className={step>=2?"pressed":""}>🔊<b>Too loud</b>{step>=2&&<i>✓</i>}</div>
+          <div ref={node=>{tileRefs.current[2]=node}} className={step>=3?"pressed":""}>☁️<b>Need a break</b>{step>=3&&<i>✓</i>}</div>
         </div>
-        <button className={`demo-create ${step>=4?"pressed":""}`}>✦ Create message</button>
-        <div className={`guided-message ${step>=4?"show":""}`}><p className="eyebrow mint">VOXA SUGGESTS</p><blockquote>“{phrase}”</blockquote><div className="guided-speak-row"><button className={step>=5?"speaking":""}>▶ {step>=5?"Speaking…":"Speak"}</button></div></div>
-        <div className={`demo-cursor step-${step}`} aria-hidden><img src="/cursor.svg" alt=""/><i key={step}/></div>
+        <button ref={createRef} className={`demo-create ${step>=4?"pressed":""}`}>✦ Create message</button>
+        <div className={`guided-message ${step>=4?"show":""}`}><p className="eyebrow mint">VOXA SUGGESTS</p><blockquote>“{phrase}”</blockquote><div className="guided-speak-row"><button ref={speakRef} className={step>=5?"speaking":""}>▶ {step>=5?"Speaking…":"Speak"}</button></div></div>
+        <div className={`demo-cursor step-${step}`} style={{left:cursor.left,top:cursor.top}} aria-hidden><img src="/cursor.svg" alt=""/><i key={step}/></div>
       </div>
       {step>=5&&<div className="demo-finish"><b>A complete thought in a few taps.</b><button onClick={onReplay}>↻ Replay</button><button onClick={onTry}>Try Voxa →</button></div>}
     </section>
