@@ -368,5 +368,22 @@ function Landing({user,onEnter,onDemo}:{user:User|null;onEnter:()=>void;onDemo:(
   <section id="how" className="how"><p className="eyebrow">HOW IT WORKS</p><h2>From a thought to a message.</h2><p>Simple enough for the moment. Thoughtful enough for the person.</p><div>{[["01","Choose","Select what you want, need, feel, or want someone to know.","☝️"],["02","Voxa helps","Your selections become a clear, natural phrase—without changing your meaning.","✦"],["03","Communicate","Review it, change it, display it, or have Voxa say it aloud.","▶"]].map(x=><article key={x[0]}><small>{x[0]}</small><span>{x[3]}</span><h3>{x[1]}</h3><p>{x[2]}</p></article>)}</div><div className="flow"><span>Your choices</span><b>→</b><span className="voxa-flow"><Logo/> Voxa</span><b>→</b><span>Your message</span></div></section>
   <section id="features" className="features"><div><p className="eyebrow">BUILT AROUND YOU</p><h2>Your meaning.<br/>Your pace. <em>Your voice.</em></h2></div><div className="feature-grid">{[["♡","Meaning stays yours","Voxa translates intentional selections. It never guesses what you think or feel."],["⚡","Ready when words aren't","Quick phrases and urgent needs are always one tap away."],["◎","Made for real life","Large touch targets, clear contrast, and flexible profiles for every setting."],["⌂","Private by default","Core communication works offline and stays on your device."]].map(f=><article key={f[1]}><span>{f[0]}</span><h3>{f[1]}</h3><p>{f[2]}</p></article>)}</div></section>
   <section id="about" className="about"><Logo/><h2>Everyone deserves to be heard.</h2><p>Difficulty speaking shouldn't mean difficulty communicating. Voxa explores how visual communication and thoughtful language assistance can help turn a few intentional choices into complete thoughts—while keeping the person communicating in control.</p><button className="primary" onClick={handleEnter} disabled={leaving}>Find your words →</button></section>
-  <footer id="privacy"><div><span className="brand"><Logo/><span>Voxa</span></span><p>Find your words.</p></div><div><b>Privacy, plainly.</b><p>Your phrases, settings, and history are stored securely and isolated to your account. Voxa does not sell communication data.</p></div><small>Voxa is an assistive communication exploration and does not replace AAC devices, speech-language professionals, medical care, or accessibility professionals.</small></footer>
+  <footer id="privacy" className="landing-footer">
+    <div className="footer-main">
+      <div className="footer-brand">
+        <span className="brand"><Logo/><span>Voxa</span></span>
+        <p>Communication, made clearer.</p>
+        <nav aria-label="Footer navigation"><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+      </div>
+      <div className="footer-privacy">
+        <p className="eyebrow">Privacy, plainly</p>
+        <h2>Your communication stays yours.</h2>
+        <p>Your phrases, settings, and history are stored securely and isolated to your account. Voxa does not sell communication data.</p>
+      </div>
+    </div>
+    <div className="footer-bottom">
+      <span>© 2026 Voxa</span>
+      <small>Voxa is an assistive communication exploration and does not replace AAC devices, speech-language professionals, medical care, or accessibility professionals.</small>
+    </div>
+  </footer>
   </main>}

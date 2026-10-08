@@ -620,3 +620,94 @@ button:disabled { cursor: not-allowed; }
 .top-actions { position: relative; }
 .logout:disabled { cursor: wait; opacity: .62; }
 .logout-error { position: absolute; z-index: 30; top: calc(100% + 11px); right: 0; width: min(280px, calc(100vw - 28px)); padding: 10px 12px; border: 1px solid #ebc7c7; border-radius: 10px; background: #fff7f7; color: #8e343c; box-shadow: 0 10px 28px #182d2b1c; font-size: 12px; font-weight: 700; line-height: 1.4; }
+
+/* A calm, compact close to the landing page. */
+.landing .landing-footer {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  padding: 0 max(28px, calc((100vw - 1120px) / 2));
+  border-radius: 30px 30px 0 0;
+  background: linear-gradient(135deg, #102825 0%, #173b35 100%);
+}
+.landing .landing-footer::before {
+  content: "";
+  position: absolute;
+  width: 360px;
+  height: 360px;
+  right: -115px;
+  top: -215px;
+  border: 1px solid #d8f2e51a;
+  border-radius: 50%;
+  box-shadow: 0 0 0 70px #d8f2e508;
+  pointer-events: none;
+}
+.footer-main {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(220px, .7fr) minmax(380px, 1.3fr);
+  gap: clamp(64px, 11vw, 150px);
+  padding: 58px 0 48px;
+}
+.footer-brand .brand { gap: 12px; font-size: 27px; }
+.footer-brand .brand .logo { width: 42px; height: 42px; }
+.landing footer .footer-brand > p { margin: 14px 0 24px; color: #b7c9c4; }
+.footer-brand nav { display: flex; gap: 10px; }
+.footer-brand nav a {
+  padding: 8px 12px;
+  border: 1px solid #d9eee72c;
+  border-radius: 999px;
+  color: #dce9e5;
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: none;
+  transition: border-color .2s ease, background .2s ease, color .2s ease;
+}
+.footer-brand nav a:hover,
+.footer-brand nav a:focus-visible { border-color: #a9d6c7; background: #ffffff10; color: white; }
+.footer-privacy { max-width: 610px; }
+.landing footer .footer-privacy .eyebrow {
+  margin: 0 0 12px;
+  color: #99d2c0;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.footer-privacy h2 {
+  max-width: 520px;
+  margin: 0 0 15px;
+  color: white;
+  font-family: Georgia, serif;
+  font-size: clamp(31px, 3vw, 43px);
+  font-weight: 400;
+  letter-spacing: -.035em;
+  line-height: 1.08;
+}
+.landing footer .footer-privacy > p:last-child { max-width: 570px; margin: 0; font-size: 15px; }
+.footer-bottom {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 45px;
+  align-items: start;
+  padding: 21px 0 28px;
+  border-top: 1px solid #ffffff1c;
+}
+.footer-bottom > span { color: #91aaa3; font-size: 12px; font-weight: 750; white-space: nowrap; }
+.landing footer .footer-bottom small {
+  max-width: 760px;
+  justify-self: end;
+  color: #91aaa3;
+  font-size: 11px;
+  line-height: 1.55;
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .landing .landing-footer { padding-inline: 24px; border-radius: 24px 24px 0 0; }
+  .footer-main { grid-template-columns: 1fr; gap: 38px; padding: 45px 0 36px; }
+  .footer-privacy h2 { font-size: 32px; }
+  .footer-bottom { grid-template-columns: 1fr; gap: 10px; padding-bottom: 24px; }
+  .landing footer .footer-bottom small { justify-self: start; text-align: left; }
+}
