@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "Terms of Service — Voxa",
+  title: "Terms of Service | Voxa",
   description: "Terms for using Voxa.",
 };
 

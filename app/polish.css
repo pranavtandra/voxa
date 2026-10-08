@@ -307,7 +307,7 @@ button:disabled { cursor: not-allowed; }
 .guest-private i { background: #d39a21; }
 .guest-account { cursor: default; }
 .guest-account:hover { background: transparent; border-color: transparent; }
-/* Profile setup — keep native form controls visually consistent across browsers. */
+/* Profile setup: keep native form controls visually consistent across browsers. */
 .profile-setup {
   padding: clamp(20px, 4vw, 56px);
 }
@@ -449,7 +449,7 @@ button:disabled { cursor: not-allowed; }
 .legal-page footer a:hover { text-decoration: underline; }
 @media (max-width: 520px) { .legal-page article { border-radius: 20px; } .legal-brand { margin-bottom: 34px; } }
 
-/* Signed-in profile — a calmer, more cohesive settings dashboard. */
+/* Signed-in profile: a calmer, more cohesive settings dashboard. */
 .profile-hero {
   min-height: 178px;
   padding: 32px 34px;

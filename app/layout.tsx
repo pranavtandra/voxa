@@ -13,12 +13,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Voxa — Find your words",
+  title: "Voxa | Find your words",
   description: "Choose what you mean. Voxa helps you say it.",
   openGraph: {
-    title: "Voxa — Find your words",
+    title: "Voxa | Find your words",
     description: "Choose what you mean. Voxa helps you say it.",
-    images: [{ url: "/og.png", width: 1200, height: 630, alt: "Voxa — Find your words" }],
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "Voxa: Find your words" }],
   },
   twitter: { card: "summary_large_image", images: ["/og.png"] },
   icons: {
