@@ -1,29 +1,45 @@
 -- Bound each account's writable surface. RLS isolates owners, while these
 -- constraints prevent an authenticated account from filling the database with
 -- arbitrary keys or unbounded JSON payloads.
-alter table public.voxa_user_data
-  add constraint voxa_user_data_allowed_key
-  check (
-    key = any (array[
-      'voxa-style',
-      'voxa-phrases',
-      'voxa-history',
-      'voxa-icons',
-      'voxa-animations',
-      'voxa-size',
-      'voxa-tts',
-      'voxa-auto-speak',
-      'voxa-voice',
-      'voxa-language',
-      'voxa-routines',
-      'voxa-conversation',
-      'voxa-custom'
-    ])
-  ) not valid;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.voxa_user_data'::regclass
+      and conname = 'voxa_user_data_allowed_key'
+  ) then
+    alter table public.voxa_user_data
+      add constraint voxa_user_data_allowed_key
+      check (
+        key = any (array[
+          'voxa-style',
+          'voxa-phrases',
+          'voxa-history',
+          'voxa-icons',
+          'voxa-animations',
+          'voxa-size',
+          'voxa-tts',
+          'voxa-auto-speak',
+          'voxa-voice',
+          'voxa-language',
+          'voxa-routines',
+          'voxa-conversation',
+          'voxa-custom'
+        ])
+      ) not valid;
+  end if;
 
-alter table public.voxa_user_data
-  add constraint voxa_user_data_value_size
-  check (pg_column_size(value) <= 2097152) not valid;
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.voxa_user_data'::regclass
+      and conname = 'voxa_user_data_value_size'
+  ) then
+    alter table public.voxa_user_data
+      add constraint voxa_user_data_value_size
+      check (pg_column_size(value) <= 2097152) not valid;
+  end if;
+end;
+$$;
 
 alter table public.voxa_user_data
   validate constraint voxa_user_data_allowed_key;
@@ -36,7 +52,7 @@ alter table public.voxa_user_data
 create schema if not exists private;
 revoke all on schema private from public, anon, authenticated;
 
-create table private.generation_rate_limits (
+create table if not exists private.generation_rate_limits (
   user_id uuid not null references auth.users(id) on delete cascade,
   period text not null check (period in ('minute', 'day')),
   window_started_at timestamptz not null,
