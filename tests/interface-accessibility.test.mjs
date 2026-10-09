@@ -19,9 +19,14 @@ test("Voxa exposes essential keyboard and screen-reader semantics", async () => 
   assert.match(page, /role="switch"/);
   assert.match(page, /aria-label=\{label\}/);
   assert.match(page, /role="alertdialog"/);
+  assert.match(page, /event\.key==="Escape"/, "dialogs should close with the Escape key");
+  assert.match(page, /event\.key!=="Tab"/, "dialogs should keep keyboard and switch focus inside the active surface");
+  assert.match(page, /previousFocus\?\.focus\(\)/, "closing a dialog should restore focus to its trigger");
+  assert.match(page, /tabIndex=\{-1\}/, "page headings and main content should support managed focus");
   assert.match(css, /button:focus-visible/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.match(css, /min-height:\s*44px/);
+  assert.match(css, /safe-area-inset-bottom/);
 });
 
 test("Voxa includes loading, empty, error, and privacy states", async () => {
@@ -29,6 +34,7 @@ test("Voxa includes loading, empty, error, and privacy states", async () => {
 
   assert.match(page, /Loading Voxa/);
   assert.match(page, /function Empty/);
+  assert.match(page, /No emojis found/);
   assert.match(page, /role="alert"/);
   assert.match(page, /role="status"/);
   assert.match(page, /Guest · Not saved/);
