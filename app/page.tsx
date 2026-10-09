@@ -5,16 +5,18 @@
 /* eslint-disable react/no-unescaped-entities -- Product copy intentionally uses natural apostrophes. */
 /* eslint-disable @next/next/no-img-element -- User data URLs and the tiny local cursor asset do not benefit from image optimization. */
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { reportError } from "@/lib/error-reporting";
-import { createPrivateMediaUrl, removePrivateMedia, uploadPrivateMedia } from "@/lib/private-media";
+import { createPrivateMediaUrls, removePrivateMedia, uploadPrivateMedia } from "@/lib/private-media";
+import { flushPersistenceQueue, getPersistenceStatus, loadCustomButtons, loadHistory, loadSettings, queueButtonDelete, queueButtonSave, queueHistoryClear, queueHistorySave, queueSettingSave, setPersistenceUser, subscribePersistence, type CustomButtonRecord, type HistoryRecord } from "@/lib/persistence";
+import type { Json } from "@/lib/database.types";
 
 type Style = "direct" | "natural" | "detailed";
-type Item = { id: string; label: string; emoji: string; category: string; phrase?: string; image?: string; imagePath?: string };
+type Item = { id: string; label: string; emoji: string; category: string; phrase?: string; image?: string; imagePath?: string; color?: string; action?: Json; position?: number };
 type SavedPhrase = { id: string; text: string; favorite: boolean };
-type HistoryItem = { id?: string; time: string; text: string; date?: string; category?: string };
+type HistoryItem = { id?: string; time: string; text: string; date?: string; category?: string; occurredAt?: string };
 type ConversationMessage = { id: string; side: "me"|"partner"; text: string };
 type Routine = { id: string; name: string; emoji: string; phrases: string[] };
 const languages = [
@@ -84,10 +86,7 @@ const pendingCloudLoads=new Map<string,Promise<Map<string,unknown>>>();
 function loadCloudData(userId:string){
   const pending=pendingCloudLoads.get(userId);
   if(pending)return pending;
-  const request=Promise.resolve(supabase.from("voxa_user_data").select("key,value").eq("user_id",userId).then(({data,error})=>{
-    if(error)throw error;
-    return new Map<string,unknown>((data||[]).map(row=>[row.key,row.value]));
-  })).finally(()=>{pendingCloudLoads.delete(userId)});
+  const request=loadSettings(userId).then(values=>new Map<string,unknown>(values)).finally(()=>{pendingCloudLoads.delete(userId)});
   pendingCloudLoads.set(userId,request);
   return request;
 }
@@ -104,14 +103,14 @@ function useCloudLocal<T>(key:string, initial:T, userId?:string, persist=true, a
       if(!active)return;
       const cloudValue=values.get(key);
       if(cloudValue!==undefined)setValue(cloudValue as T);
-      else {setValue(initialRef.current);await supabase.from("voxa_user_data").upsert({user_id:userId,key,value:initialRef.current},{onConflict:"user_id,key"});}
+      else {setValue(initialRef.current);await queueSettingSave(userId,key,initialRef.current as Json);}
       if(active)setCloudUser(userId);
     }).catch(()=>{if(active)reportError("sync-load")});
     return()=>{active=false};
   },[key,persist,userId]);
   useEffect(()=>{
     if(!autoSave||!persist||!userId||cloudUser!==userId)return;
-    void supabase.from("voxa_user_data").upsert({user_id:userId,key,value},{onConflict:"user_id,key"}).then(({error})=>{if(error)reportError("sync-save")});
+    void queueSettingSave(userId,key,value as Json).catch(()=>reportError("sync-queue"));
   },[autoSave,cloudUser,key,persist,userId,value]);
   return [value,setValue] as const;
 }
@@ -125,7 +124,7 @@ export default function Home() {
   const userId=session?.user.id;
   const persist=!guest;
   const [style,setStyle]=useCloudLocal<Style>("voxa-style","natural",userId,persist); const [phrases,setPhrases]=useCloudLocal<SavedPhrase[]>("voxa-phrases",[],userId,persist);
-  const [history,setHistory]=useCloudLocal<HistoryItem[]>("voxa-history",[],userId,persist,false);
+  const [history,setHistory]=useState<HistoryItem[]>([]);
   const historyRef=useRef<HistoryItem[]>([]);
   const [icons,setIcons]=useCloudLocal("voxa-icons",true,userId,persist);
   const [animations,setAnimations]=useCloudLocal("voxa-animations",true,userId,persist); const [buttonSize,setButtonSize]=useCloudLocal("voxa-size","large",userId,persist);
@@ -136,26 +135,67 @@ export default function Home() {
   const [routineName,setRoutineName]=useState(""); const [routinePhrases,setRoutinePhrases]=useState<string[]>([]);
   const [addingWord,setAddingWord]=useState(false); const [savingWord,setSavingWord]=useState(false); const [newWord,setNewWord]=useState(""); const [newEmoji,setNewEmoji]=useState("✨"); const [newImage,setNewImage]=useState(""); const [newImageFile,setNewImageFile]=useState<File>(); const [imageUrls,setImageUrls]=useState<Record<string,string>>({}); const [imageError,setImageError]=useState(""); const [emojiScreen,setEmojiScreen]=useState(false); const [emojiQuery,setEmojiQuery]=useState(""); const [emojiGroup,setEmojiGroup]=useState("All");
   const [conversation,setConversation]=useCloudLocal<ConversationMessage[]>("voxa-conversation",[],userId,persist); const [composingConversation,setComposingConversation]=useState(false);
-  const [custom,setCustom]=useCloudLocal<Item[]>("voxa-custom",[],userId,persist); const [demo,setDemo]=useState(false); const [demoStep,setDemoStep]=useState(0);
+  const [custom,setCustom]=useState<Item[]>([]); const [demo,setDemo]=useState(false); const [demoStep,setDemoStep]=useState(0);
   const [source,setSource]=useState<"local"|"gemini">("local");
-  const allData=[...data,...custom];
-  const grid=category==="favorites"?allData.filter(i=>["water-drink","need-break","headphones"].includes(i.id)):allData.filter(i=>i.category===category);
+  const persistenceStatus=useSyncExternalStore(subscribePersistence,getPersistenceStatus,getPersistenceStatus);
+  const allData=useMemo(()=>[...data,...custom],[custom]);
+  const grid=useMemo(()=>category==="favorites"?allData.filter(i=>["water-drink","need-break","headphones"].includes(i.id)):allData.filter(i=>i.category===category),[allData,category]);
+  const selectedIds=useMemo(()=>new Set(selected.map(item=>item.id)),[selected]);
   const isSaved=Boolean(message&&phrases.some(p=>p.text===message));
-  const phraseCounts=history.reduce<Record<string,number>>((counts,item)=>{counts[item.text]=(counts[item.text]||0)+1;return counts},{});
-  const topPhrases=Object.entries(phraseCounts).sort((a,b)=>b[1]-a[1]).slice(0,3);
-  const categoryCounts=history.reduce<Record<string,number>>((counts,item)=>{const key=item.category||"Communicate";counts[key]=(counts[key]||0)+1;return counts},{});
-  const topCategory=Object.entries(categoryCounts).sort((a,b)=>b[1]-a[1])[0]?.[0]||"None yet";
-  const week=Array.from({length:7},(_,offset)=>{const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-(6-offset));const key=d.toISOString().slice(0,10);return{label:d.toLocaleDateString([],{weekday:"narrow"}),count:history.filter(h=>h.date===key).length}});
+  const {topPhrases,topCategory,week}=useMemo(()=>{
+    const phraseCounts:Record<string,number>={};
+    const categoryCounts:Record<string,number>={};
+    const dates=Array.from({length:7},(_,offset)=>{const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-(6-offset));return{key:d.toISOString().slice(0,10),label:d.toLocaleDateString([],{weekday:"narrow"})}});
+    const dateCounts=new Map(dates.map(({key})=>[key,0]));
+    for(const item of history){phraseCounts[item.text]=(phraseCounts[item.text]||0)+1;const categoryName=item.category||"Communicate";categoryCounts[categoryName]=(categoryCounts[categoryName]||0)+1;if(item.date&&dateCounts.has(item.date))dateCounts.set(item.date,(dateCounts.get(item.date)||0)+1)}
+    return{topPhrases:Object.entries(phraseCounts).sort((a,b)=>b[1]-a[1]).slice(0,3),topCategory:Object.entries(categoryCounts).sort((a,b)=>b[1]-a[1])[0]?.[0]||"None yet",week:dates.map(({key,label})=>({label,count:dateCounts.get(key)||0}))};
+  },[history]);
+  const matchingEmojiGroups=useMemo(()=>Object.entries(emojiGroups).filter(([group])=>emojiGroup==="All"||emojiGroup===group).map(([group,emojis])=>[group,emojis.filter(emoji=>!emojiQuery.trim()||`${emoji} ${emojiSearchNames[emoji]||group}`.toLowerCase().includes(emojiQuery.trim().toLowerCase()))] as const).filter(([,emojis])=>emojis.length>0),[emojiGroup,emojiQuery]);
   const accountName=guest?"Guest":String(session?.user.user_metadata?.full_name||session?.user.user_metadata?.name||session?.user.email?.split("@")[0]||"Account");
 
   useEffect(()=>{const load=()=>setVoices(window.speechSynthesis?.getVoices()||[]);load();window.speechSynthesis?.addEventListener("voiceschanged",load);return()=>window.speechSynthesis?.removeEventListener("voiceschanged",load)},[]);
   useEffect(()=>{historyRef.current=history},[history]);
   useEffect(()=>{
+    if(!emojiScreen&&!deleteOpen)return;
+    const previousFocus=document.activeElement instanceof HTMLElement?document.activeElement:null;
+    const previousOverflow=document.body.style.overflow;
+    document.body.style.overflow="hidden";
+    return()=>{document.body.style.overflow=previousOverflow;previousFocus?.focus()};
+  },[deleteOpen,emojiScreen]);
+  useEffect(()=>{
+    if(!emojiScreen&&!deleteOpen)return;
+    const handleDialogKeys=(event:KeyboardEvent)=>{
+      if(event.key==="Escape"){if(emojiScreen)setEmojiScreen(false);else if(deleteOpen&&!deleteBusy)setDeleteOpen(false);return}
+      if(event.key!=="Tab")return;
+      const dialog=document.querySelector<HTMLElement>("[role='dialog'],[role='alertdialog']");
+      const focusable=dialog?[...dialog.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex='-1'])")]:[];
+      const first=focusable[0];const last=focusable.at(-1);
+      if(!first||!last)return;
+      if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}
+      else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}
+    };
+    window.addEventListener("keydown",handleDialogKeys);
+    return()=>window.removeEventListener("keydown",handleDialogKeys);
+  },[deleteBusy,deleteOpen,emojiScreen]);
+  useEffect(()=>{
+    let active=true;
+    if(!persist||!userId){void setPersistenceUser();return()=>{active=false}}
+    void (async()=>{
+      try{
+        await setPersistenceUser(userId);await flushPersistenceQueue();
+        const [savedHistory,savedButtons]=await Promise.all([loadHistory(userId),loadCustomButtons(userId)]);
+        if(!active)return;
+        setHistory(savedHistory);historyRef.current=savedHistory;setCustom(savedButtons);
+      }catch{if(active)reportError("persistence-load")}
+    })();
+    return()=>{active=false};
+  },[persist,userId]);
+  useEffect(()=>{
     let active=true;
     const paths=[...new Set(custom.map(item=>item.imagePath).filter((path):path is string=>Boolean(path)))];
     if(!session||paths.length===0)return()=>{active=false};
-    void Promise.all(paths.map(async path=>[path,await createPrivateMediaUrl(path)] as const))
-      .then(entries=>{if(active)setImageUrls(Object.fromEntries(entries))})
+    void createPrivateMediaUrls(paths)
+      .then(urls=>{if(active)setImageUrls(urls)})
       .catch(()=>{if(active)reportError("private-media-sign")});
     return()=>{active=false};
   },[custom,session]);
@@ -174,8 +214,6 @@ export default function Home() {
     return()=>subscription.unsubscribe();
   },[]);
   /* eslint-enable react-hooks/exhaustive-deps */
-  useEffect(()=>{if(!session)return;if(localStorage.getItem("voxa-empty-phrases-v2"))return;setPhrases([]);setHistory(h=>h.filter(x=>![["10:42 AM","Could I have some water, please?"],["10:38 AM","It's too loud in here."]].some(([time,text])=>x.time===time&&x.text===text)));localStorage.setItem("voxa-empty-phrases-v2","1")},[session,setPhrases,setHistory]);
-
   function choose(item:Item){
     if(item.phrase && ["quick","questions","responses","help"].includes(item.category)){setMessage(item.phrase);setSelected([item]);return;}
     setSelected(s=>s.some(x=>x.id===item.id)?s.filter(x=>x.id!==item.id):[...s,item]);
@@ -188,23 +226,16 @@ export default function Home() {
   }
   async function recordHistory(text:string){
     const now=new Date();
-    const entry:HistoryItem={id:crypto.randomUUID(),time:now.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}),date:now.toISOString().slice(0,10),text,category:categories.find(c=>c[0]===category)?.[1]||"Communicate"};
-    const optimistic=[entry,...historyRef.current.filter(item=>item.id!==entry.id)].slice(0,100);
+    const entry:HistoryRecord={id:crypto.randomUUID(),time:now.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}),date:now.toISOString().slice(0,10),occurredAt:now.toISOString(),text,category:categories.find(c=>c[0]===category)?.[1]||"Communicate"};
+    const optimistic=[entry,...historyRef.current.filter(item=>item.id!==entry.id)];
     historyRef.current=optimistic;setHistory(optimistic);
     if(!userId||guest)return;
-    const {data,error:loadError}=await supabase.from("voxa_user_data").select("value").eq("user_id",userId).eq("key","voxa-history").maybeSingle();
-    if(loadError){reportError("history-load");return;}
-    const remote=Array.isArray(data?.value)?data.value as HistoryItem[]:[];
-    const merged=[entry,...remote.filter(item=>item.id!==entry.id)].slice(0,100);
-    const {error:saveError}=await supabase.from("voxa_user_data").upsert({user_id:userId,key:"voxa-history",value:merged},{onConflict:"user_id,key"});
-    if(saveError){reportError("history-save");return;}
-    historyRef.current=merged;setHistory(merged);
+    try{await queueHistorySave(userId,entry)}catch{reportError("history-queue")}
   }
   async function clearHistory(){
-    historyRef.current=[];setHistory([]);
+    const previous=historyRef.current;historyRef.current=[];setHistory([]);
     if(!userId||guest)return;
-    const {error}=await supabase.from("voxa_user_data").upsert({user_id:userId,key:"voxa-history",value:[]},{onConflict:"user_id,key"});
-    if(error)reportError("history-clear");
+    try{await queueHistoryClear(userId)}catch{historyRef.current=previous;setHistory(previous);reportError("history-clear-queue")}
   }
   function speak(text=message){if(!text||typeof window==="undefined"||!tts)return; window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang=language;const voice=voices.find(v=>v.name===voiceName)||voices.find(v=>v.lang.toLowerCase()===language.toLowerCase())||voices.find(v=>v.lang.toLowerCase().startsWith(language.split("-")[0].toLowerCase()));if(voice)u.voice=voice;u.onstart=()=>setSpeaking(true);u.onend=()=>setSpeaking(false);window.speechSynthesis.speak(u);void recordHistory(text);}
   function save(){if(!message)return;setPhrases(p=>p.some(x=>x.text===message)?p.filter(x=>x.text!==message):[{id:crypto.randomUUID(),text:message,favorite:true},...p]);}
@@ -218,9 +249,9 @@ export default function Home() {
     setSavingWord(true);setImageError("");
     try{
       if(userId&&!guest&&newImageFile){const extension=newImageFile.name.split(".").pop()?.toLowerCase()||"jpg";imagePath=`${userId}/${id}.${extension}`;await uploadPrivateMedia(imagePath,newImageFile);}
-      const item:Item={id,label,emoji:newEmoji.trim()||"✨",image:guest?newImage||undefined:undefined,imagePath,category,phrase:["quick","questions","responses","help"].includes(category)?label+(/[?.!]$/.test(label)?"":"."):undefined};
+      const item:Item={id,label,emoji:newEmoji.trim()||"✨",image:guest?newImage||undefined:undefined,imagePath,category,position:custom.length,phrase:["quick","questions","responses","help"].includes(category)?label+(/[?.!]$/.test(label)?"":"."):undefined};
       const next=[...custom,item];
-      if(userId&&!guest){const {error}=await supabase.from("voxa_user_data").upsert({user_id:userId,key:"voxa-custom",value:next},{onConflict:"user_id,key"});if(error)throw error;}
+      if(userId&&!guest)await queueButtonSave(userId,item as CustomButtonRecord);
       setCustom(next);setNewWord("");setNewEmoji("✨");setNewImage("");setNewImageFile(undefined);setImageError("");setAddingWord(false);
     }catch{if(imagePath)void removePrivateMedia(imagePath).catch(()=>reportError("private-media-cleanup"));setImageError("Voxa couldn't save this button. Check your connection and try again.");reportError("custom-button-save")}finally{setSavingWord(false)}
   }
@@ -231,6 +262,8 @@ export default function Home() {
     const reader=new FileReader();reader.onload=()=>{if(typeof reader.result==="string"){setNewImage(reader.result);setNewImageFile(file);setEmojiScreen(false)}};reader.onerror=()=>setImageError("That image could not be read. Try another one.");reader.readAsDataURL(file);
   }
   function addRoutine(e:React.FormEvent){e.preventDefault();if(!routineName.trim()||!routinePhrases.length)return;setRoutines(x=>[...x,{id:crypto.randomUUID(),name:routineName.trim(),emoji:"✦",phrases:routinePhrases}]);setRoutineName("");setRoutinePhrases([]);setAddingRoutine(false)}
+  async function addSimpleCustom(e:React.FormEvent){e.preventDefault();const label=customName.trim();if(!label)return;const item:Item={id:crypto.randomUUID(),label,emoji:"✨",category:"custom",position:custom.length};try{if(userId&&!guest)await queueButtonSave(userId,item as CustomButtonRecord);setCustom(items=>[...items,item]);setCustomName("")}catch{reportError("custom-button-queue")}}
+  async function removeCustomButton(item:Item){const previous=custom;setCustom(items=>items.filter(button=>button.id!==item.id));if(!userId||guest)return;try{await queueButtonDelete(userId,item.id)}catch{setCustom(previous);reportError("custom-button-delete-queue")}}
   function startDemo(){setDemo(true);setDemoStep(0)}
   function exitDemo(){window.speechSynthesis?.cancel();setDemo(false);setDemoStep(0);setEntered(false);setPage("Communicate")}
   function enterFromDemo(){window.speechSynthesis?.cancel();setDemo(false);setDemoStep(0);setPage("Communicate");setEntered(true);if(!session)setAuthOpen(true)}
@@ -241,14 +274,13 @@ export default function Home() {
     if(logoutBusy)return;
     setLogoutBusy(true);setLogoutError("");window.speechSynthesis?.cancel();
     if(!userId){setLogoutError("Your session has expired. Refresh the page and try again.");setLogoutBusy(false);return;}
-    const accountData=[
+    const accountData:[string,Json][]=[
       ["voxa-style",style],["voxa-phrases",phrases],["voxa-history",history],["voxa-icons",icons],
       ["voxa-animations",animations],["voxa-size",buttonSize],["voxa-tts",tts],["voxa-auto-speak",autoSpeak],
       ["voxa-voice",voiceName],["voxa-language",language],["voxa-routines",routines],
       ["voxa-conversation",conversation],["voxa-custom",custom],
-    ].map(([key,value])=>({user_id:userId,key,value}));
-    const {error:saveError}=await supabase.from("voxa_user_data").upsert(accountData,{onConflict:"user_id,key"});
-    if(saveError){setLogoutError("Voxa couldn't save your latest changes. You're still logged in. Check your connection and try again.");setLogoutBusy(false);return;}
+    ];
+    try{await Promise.all(accountData.filter(([key])=>key!=="voxa-history"&&key!=="voxa-custom").map(([key,value])=>queueSettingSave(userId,key,value)));await flushPersistenceQueue();if(getPersistenceStatus().pending>0)throw new Error("Pending saves remain")}catch{setLogoutError("Voxa couldn't save your latest changes. You're still logged in. Check your connection and try again.");setLogoutBusy(false);return;}
     const {error}=await supabase.auth.signOut({scope:"local"});
     if(error){setLogoutError("Log out failed. Check your connection and try again.");setLogoutBusy(false);return;}
     setSession(null);setEntered(false);setPage("Communicate");setSelected([]);setMessage("");setConversation([]);setLogoutBusy(false);
@@ -283,18 +315,21 @@ export default function Home() {
   if(!entered) return <Landing user={session?.user||null} onEnter={()=>session?setEntered(true):setAuthOpen(true)} onDemo={startDemo}/>;
   if(!session&&!guest)return <AuthScreen recovery={false} onGuest={enterAsGuest} onRecoveryDone={()=>{}} onBack={()=>setEntered(false)}/>;
   if(session&&!profileComplete)return <ProfileSetup name={profileName} setName={setProfileName} language={language} setLanguage={setLanguage} buttonSize={buttonSize} setButtonSize={setButtonSize} tts={tts} setTts={setTts} voiceName={voiceName} setVoiceName={setVoiceName} voices={voices} message={profileMessage} onSubmit={e=>void saveProfile(e,true)}/>;
-  return <main className={`app ${animations?"":"no-motion"}`}>
+  return <main id="app-content" tabIndex={-1} className={`app ${animations?"":"no-motion"}`}>
+    <a className="skip-link" href="#app-content">Skip to main content</a>
     <header className="topbar">
       <button className="brand" onClick={()=>setEntered(false)} aria-label="Voxa home"><Logo/> <span>Voxa</span></button>
       <nav className="desktop-nav" aria-label="Main navigation">{["Communicate","Conversation","My Phrases","Routines","History","Customize","Patterns","Settings"].map(n=><button key={n} className={page===n?"active":""} aria-current={page===n?"page":undefined} onClick={()=>setPage(n)}>{n}</button>)}</nav>
       <div className="top-actions"><span className={`private ${guest?"guest-private":""}`}><i/> {guest?"Guest · Not saved":"Secure sync"}</span>{session?<button className={`account-button ${page==="Profile"?"active":""}`} onClick={()=>setPage("Profile")} aria-label={`Open ${accountName}'s profile`}><span className="account-avatar" aria-hidden>{accountName.slice(0,1).toUpperCase()}</span><span className="account-name">{accountName}</span><span aria-hidden>⌄</span></button>:<span className="account-button guest-account" aria-label="Guest session"><span className="account-avatar" aria-hidden>G</span><span className="account-name">Guest</span></span>}{logoutError&&<span className="logout-error" role="alert">{logoutError}</span>}<button type="button" className="logout" disabled={logoutBusy} onClick={()=>void logout()}>{guest?"Exit guest":logoutBusy?"Logging out…":"Log out"}</button></div>
     </header>
+    {(persistenceStatus.saving||persistenceStatus.pending>0||persistenceStatus.lastError)&&<div className={`save-status ${persistenceStatus.lastError?"save-error":""}`} role="status" aria-live="polite">{persistenceStatus.lastError?`Save failed, retrying (${persistenceStatus.pending})`:persistenceStatus.saving?"Saving…":`${persistenceStatus.pending} changes waiting to save`}</div>}
+    {process.env.NODE_ENV==="development"&&<aside className="persistence-debug" aria-label="Persistence debug panel"><b>Save debug</b><span>Pending: {persistenceStatus.pending}</span><span>Last saved: {persistenceStatus.lastSavedAt?new Date(persistenceStatus.lastSavedAt).toLocaleTimeString():"Never"}</span><span>Last error: {persistenceStatus.lastError||"None"}</span></aside>}
     <nav className="mobile-nav" aria-label="Mobile navigation">{["Communicate","Conversation","My Phrases","Routines","History","Customize","Patterns","Settings"].map(n=><button key={n} className={page===n?"active":""} aria-current={page===n?"page":undefined} onClick={()=>setPage(n)}>{n.replace("My Phrases","Phrases")}</button>)}</nav>
     {page==="Communicate"&&<div className="communicate">
       <aside className="categories"><p className="eyebrow">COMMUNICATE</p><h2>What do you want to say?</h2>{categories.map(([id,label,emoji])=><button key={id} className={category===id?"selected-cat":""} aria-pressed={category===id} onClick={()=>setCategory(id)}><span aria-hidden>{emoji}</span>{label}</button>)}<button className="demo-mini" onClick={startDemo}>▶ Demo Mode</button></aside>
       <section className="board">
         <div className="board-head"><div><p className="eyebrow">{categories.find(c=>c[0]===category)?.[1]}</p><h1>{category==="feelings"?"How are you feeling?":category==="quick"?"Say it quickly":"Choose what you mean"}</h1><p>{category==="feelings"?"Select a feeling, then add what you need.":"Tap a card to add it to your choices."}</p></div><span className="count">{grid.length} choices</span></div>
-        <div className={`card-grid size-${buttonSize}`}>{grid.map(item=>{const imageUrl=item.image||(item.imagePath?imageUrls[item.imagePath]:undefined);return <button key={item.id} className={`comm-card ${selected.some(s=>s.id===item.id)?"chosen":""}`} onClick={()=>choose(item)} aria-pressed={selected.some(s=>s.id===item.id)}>{selected.some(s=>s.id===item.id)&&<b className="check">✓</b>}{icons&&(imageUrl?<img className="card-image" src={imageUrl} alt=""/>:<span className="emoji">{item.emoji}</span>)}<strong>{item.label}</strong>{item.category==="help"&&<small>Quick access</small>}</button>})}<button className="comm-card add-word-card" onClick={()=>setAddingWord(true)}><span className="emoji">＋</span><strong>Add another word</strong><small>To {categories.find(c=>c[0]===category)?.[1]}</small></button></div>
+        <div className={`card-grid size-${buttonSize}`}>{grid.map(item=>{const imageUrl=item.image||(item.imagePath?imageUrls[item.imagePath]:undefined);const chosen=selectedIds.has(item.id);return <button key={item.id} className={`comm-card ${chosen?"chosen":""}`} onClick={()=>choose(item)} aria-pressed={chosen}>{chosen&&<b className="check">✓</b>}{icons&&(imageUrl?<img className="card-image" src={imageUrl} alt=""/>:<span className="emoji">{item.emoji}</span>)}<strong>{item.label}</strong>{item.category==="help"&&<small>Quick access</small>}</button>})}<button className="comm-card add-word-card" onClick={()=>setAddingWord(true)}><span className="emoji">＋</span><strong>Add another word</strong><small>To {categories.find(c=>c[0]===category)?.[1]}</small></button></div>
         {addingWord&&<form className="inline-maker" onSubmit={addWord}><div><h3>Add to {categories.find(c=>c[0]===category)?.[1]}</h3><button type="button" aria-label="Close" disabled={savingWord} onClick={()=>setAddingWord(false)}>×</button></div><label>Word or phrase<input autoFocus disabled={savingWord} value={newWord} onChange={e=>setNewWord(e.target.value)} placeholder="Type your own"/></label><label>Emoji<button type="button" className="emoji-launch" disabled={savingWord} onClick={()=>setEmojiScreen(true)}><b>{newEmoji}</b><span>Choose an emoji</span><i>→</i></button></label><label>Or use your own picture<span className="custom-image-upload">{newImage?<img src={newImage} alt="Custom preview"/>:<b aria-hidden>↑</b>}<span>{newImage?"Choose a different picture":"Upload JPG, PNG, WebP, or GIF"}<small>Maximum 1 MB</small></span><input type="file" disabled={savingWord} accept="image/jpeg,image/png,image/webp,image/gif" onChange={e=>uploadCustomImage(e.target.files?.[0])}/></span></label>{newImage&&<button type="button" className="remove-custom-image" disabled={savingWord} onClick={()=>{setNewImage("");setNewImageFile(undefined)}}>Remove picture</button>}{imageError&&<p className="image-error" role="alert">{imageError}</p>}<button className="primary" disabled={savingWord}>{savingWord?"Saving…":"Add word"}</button></form>}
         {grid.length===0&&<Empty title="No favorites yet." text="Favorite the things you use most to keep them close."/>}
       </section>
@@ -311,21 +346,21 @@ export default function Home() {
         <div className="principle"><b>🔒 You’re in control</b><p>Voxa only uses the choices you select. It never guesses what you mean.</p></div>
       </aside>
     </div>}
-    {emojiScreen&&<section className="emoji-screen" role="dialog" aria-modal="true" aria-labelledby="emoji-title"><header><button onClick={()=>setEmojiScreen(false)}>← Back</button><div><p className="eyebrow">CUSTOM WORD</p><h1 id="emoji-title">Choose an emoji</h1></div><span className="emoji-current">{newEmoji}</span></header><div className="emoji-search"><span aria-hidden>⌕</span><input aria-label="Search emojis" autoFocus value={emojiQuery} onChange={e=>setEmojiQuery(e.target.value)} placeholder="Search emojis: try food, happy, school…"/></div><nav aria-label="Emoji categories">{["All",...Object.keys(emojiGroups)].map(group=><button key={group} className={emojiGroup===group?"selected":""} aria-pressed={emojiGroup===group} onClick={()=>setEmojiGroup(group)}>{group}</button>)}</nav><div className="emoji-library">{Object.entries(emojiGroups).filter(([group])=>emojiGroup==="All"||emojiGroup===group).map(([group,emojis])=>{const filtered=emojis.filter(emoji=>!emojiQuery.trim()||`${emoji} ${emojiSearchNames[emoji]||group}`.toLowerCase().includes(emojiQuery.toLowerCase()));return filtered.length?<section key={group}><h2>{group}</h2><div>{filtered.map((emoji,index)=><button key={`${emoji}-${index}`} aria-label={`Select ${emoji}`} onClick={()=>{setNewEmoji(emoji);setNewImage("");setEmojiScreen(false)}}>{emoji}</button>)}</div></section>:null})}</div></section>}
+    {emojiScreen&&<section className="emoji-screen" role="dialog" aria-modal="true" aria-labelledby="emoji-title"><header><button onClick={()=>setEmojiScreen(false)}>← Back</button><div><p className="eyebrow">CUSTOM WORD</p><h1 id="emoji-title">Choose an emoji</h1></div><span className="emoji-current">{newEmoji}</span></header><div className="emoji-search"><span aria-hidden>⌕</span><input aria-label="Search emojis" autoFocus value={emojiQuery} onChange={e=>setEmojiQuery(e.target.value)} placeholder="Search emojis: try food, happy, school…"/></div><nav aria-label="Emoji categories">{["All",...Object.keys(emojiGroups)].map(group=><button key={group} className={emojiGroup===group?"selected":""} aria-pressed={emojiGroup===group} onClick={()=>setEmojiGroup(group)}>{group}</button>)}</nav><div className="emoji-library">{matchingEmojiGroups.map(([group,emojis])=><section key={group}><h2>{group}</h2><div>{emojis.map((emoji,index)=><button key={`${emoji}-${index}`} aria-label={`Select ${emoji}`} onClick={()=>{setNewEmoji(emoji);setNewImage("");setEmojiScreen(false)}}>{emoji}</button>)}</div></section>)}{matchingEmojiGroups.length===0&&<div className="emoji-empty" role="status"><span aria-hidden>⌕</span><h2>No emojis found</h2><p>Try a broader word, such as food, happy, or school.</p></div>}</div></section>}
     {page==="Conversation"&&<Page title="Conversation" sub="Take turns while keeping every message visible."><div className="conversation"><div className="conversation-head"><b>{conversation.length?`${conversation.length} messages`:"Start a conversation"}</b>{conversation.length>0&&<button className="clear" onClick={()=>setConversation([])}>Clear conversation</button>}</div><div className="conversation-thread" aria-live="polite">{conversation.length?conversation.map(item=><div key={item.id} className={`bubble ${item.side}`}><b>{item.side==="me"?"Me":"Conversation Partner"}</b><p>{item.text}</p>{item.side==="me"&&<button disabled={!tts} onClick={()=>speak(item.text)}>▶ Speak</button>}</div>):<Empty title="No messages yet." text="The conversation partner can type a message below."/>}</div><form className="partner-form" onSubmit={e=>{e.preventDefault();sendPartner()}}><label>Conversation partner<textarea value={partner} onChange={e=>setPartner(e.target.value)} placeholder="Type a question or message…"/></label><button className="primary" disabled={!partner.trim()}>Send message</button></form>{conversation.at(-1)?.side==="partner"&&<div className="suggestion-buttons"><b>Suggested responses</b>{(/hungry|lunch|eat|food/i.test(conversation.at(-1)?.text||"")?["Yes","No","I don't know","Choose food"]:/how are you|feel/i.test(conversation.at(-1)?.text||"")?["I'm okay","I'm not okay","I don't know","Choose a feeling"]:["Yes","No","I don't know","Give me a moment"]).map(x=><button key={x} onClick={()=>{if(x==="Choose food"){setCategory("food");setComposingConversation(true);setMessage("");setSelected([]);setPage("Communicate")}else if(x==="Choose a feeling"){setCategory("feelings");setComposingConversation(true);setMessage("");setSelected([]);setPage("Communicate")}else{const text=x+(/[?.!]$/.test(x)?"":".");addConversationMessage("me",text);setMessage(text)}}}>{x}</button>)}</div>}<button className="primary visual-reply" onClick={()=>{setComposingConversation(true);setMessage("");setSelected([]);setPage("Communicate")}}>Open visual choices</button></div></Page>}
     {page==="My Phrases"&&<Page title="My Phrases" sub="Only messages you intentionally save appear here."><div className="phrase-list">{phrases.length?phrases.map(p=><article key={p.id}><button className="favorite saved" aria-label="Remove saved phrase" title="Remove saved phrase" onClick={()=>setPhrases(x=>x.filter(q=>q.id!==p.id))}>♥</button><p>{p.text}</p><div><button disabled={!tts} onClick={()=>speak(p.text)}>▶ Speak</button><button onClick={()=>{setMessage(p.text);setPage("Communicate")}}>Reuse</button></div></article>):<Empty title="Your phrases will appear here." text="Press Save on a created message to keep it here."/>}</div></Page>}
     {page==="Routines"&&<Page title="Routines" sub="Ready-made sequences for moments you communicate through often.">{activeRoutine===null?<><div className="section-actions"><button className="primary" onClick={()=>setAddingRoutine(!addingRoutine)}>＋ Add routine</button></div>{addingRoutine&&<form className="routine-maker" onSubmit={addRoutine}><div><h3>Create a routine from saved phrases</h3><button type="button" aria-label="Close" onClick={()=>setAddingRoutine(false)}>×</button></div><label>Routine name<input autoFocus value={routineName} onChange={e=>setRoutineName(e.target.value)} placeholder="Getting ready"/></label><fieldset><legend>Choose saved phrases</legend>{phrases.length?phrases.map(p=><label key={p.id}><input type="checkbox" checked={routinePhrases.includes(p.text)} onChange={()=>setRoutinePhrases(x=>x.includes(p.text)?x.filter(t=>t!==p.text):[...x,p.text])}/><span>{p.text}</span></label>):<p>Save some messages first, then return here to build a routine.</p>}</fieldset><button className="primary" disabled={!routineName.trim()||!routinePhrases.length}>Create routine</button></form>}<div className="routine-grid">{routines.map((r,i)=><article key={r.id}><span>{r.emoji}</span><h3>{r.name}</h3><ol>{r.phrases.map(x=><li key={x}>{x}</li>)}</ol><button onClick={()=>{setActiveRoutine(i);setRoutineStep(0)}}>Start routine →</button></article>)}</div></>:<div className="routine-player"><button className="outline" onClick={()=>setActiveRoutine(null)}>← All routines</button><span>{routines[activeRoutine].emoji}</span><p className="eyebrow">{routines[activeRoutine].name.toUpperCase()}</p><h2>{routines[activeRoutine].phrases[routineStep]}</h2><p>Step {routineStep+1} of {routines[activeRoutine].phrases.length}</p><div><button className="primary" onClick={()=>speak(routines[activeRoutine].phrases[routineStep])}>▶ Speak this step</button><button className="outline" onClick={()=>{setMessage(routines[activeRoutine].phrases[routineStep]);setPage("Communicate")}}>Use in Communicate</button></div><div className="routine-nav"><button disabled={routineStep===0} onClick={()=>setRoutineStep(s=>s-1)}>← Previous</button>{routineStep<routines[activeRoutine].phrases.length-1?<button onClick={()=>setRoutineStep(s=>s+1)}>Next →</button>:<button onClick={()=>setActiveRoutine(null)}>Finish ✓</button>}</div></div>}</Page>}
     {page==="History"&&<Page title="History" sub="Recently communicated across your signed-in devices."><button className="outline danger" onClick={()=>void clearHistory()}>Clear history</button><div className="history">{history.length?history.map((h,i)=><article key={h.id||`${h.date||"legacy"}-${h.time}-${i}`}><time>{h.time}</time><p>{h.text}</p><button onClick={()=>speak(h.text)}>▶ Speak again</button><button onClick={()=>{setMessage(h.text);setPage("Communicate")}}>Reuse</button></article>):<Empty title="Nothing here yet." text="Messages you communicate will appear here."/>}</div></Page>}
-    {page==="Customize"&&<Page title="Customize Voxa" sub="Make communication feel like yours."><div className="customize"><form onSubmit={e=>{e.preventDefault();if(!customName)return;setCustom(x=>[...x,{id:crypto.randomUUID(),label:customName,emoji:"✨",category:"custom"}]);setCustomName("")}}><h3>Create a communication button</h3><label>Name<input value={customName} onChange={e=>setCustomName(e.target.value)} placeholder="Headphones"/></label><label>Icon / emoji<input defaultValue="🎧"/></label><label>Phrase<input placeholder="Can I have my headphones, please?"/></label><button className="primary">Add button</button></form><div><h3>Manage your experience</h3>{["Create a category","Reorder categories","Manage favorites","Hide a category","Create a routine"].map(x=><button className="manage" key={x}>{x}<span>→</span></button>)}</div></div></Page>}
+    {page==="Customize"&&<Page title="Customize Voxa" sub="Make communication feel like yours."><div className="customize"><form onSubmit={e=>void addSimpleCustom(e)}><h3>Create a communication button</h3><label>Name<input value={customName} onChange={e=>setCustomName(e.target.value)} placeholder="Headphones"/></label><button className="primary">Add button</button></form><div><h3>Your custom buttons</h3>{custom.length?custom.map(item=><div className="custom-button-row" key={item.id}><span>{item.emoji} {item.label}</span><button className="outline danger" onClick={()=>void removeCustomButton(item)}>Delete</button></div>):<p>No custom buttons yet.</p>}</div></div></Page>}
     {page==="Patterns"&&<Page title="Communication Patterns" sub="Your actual activity on this device, not estimates or sample data."><div className="stats"><article><span>{week.reduce((sum,d)=>sum+d.count,0)}</span><p>Messages this week</p></article><article><span>{topCategory}</span><p>Most used category</p></article><article><span>{phrases.length}</span><p>Saved phrases</p></article></div><div className="patterns"><article><h3>Most used phrases</h3>{topPhrases.length?topPhrases.map(([text,count],i)=><p key={text}><b>{i+1}</b><span>{text}</span><small>{count}×</small></p>):<Empty title="No activity yet." text="Phrases you speak will appear here."/>}</article><article><h3>Communication activity</h3><div className="bars">{week.map((d,i)=>{const max=Math.max(1,...week.map(x=>x.count));return <i key={i} style={{height:Math.max(4,(d.count/max)*100)+"%"}} title={`${d.count} messages`}><b>{d.count||""}</b><span>{d.label}</span></i>})}</div></article></div><p className="notice">Voxa shows communication usage patterns only. It does not provide medical or diagnostic conclusions.</p></Page>}
     {page==="Profile"&&<Page title="Profile" sub="Your identity, voice, and communication preferences."><div className="profile-hero"><div className="profile-avatar" aria-hidden>{accountName.slice(0,1).toUpperCase()}</div><div><p className="eyebrow">YOUR VOXA ACCOUNT</p><h2>{accountName}</h2><p>{session?.user.email}</p></div><span className="profile-sync"><i/> Synced securely</span></div><div className="profile-layout"><form className="profile-card" onSubmit={e=>void saveProfile(e)}><div className="profile-section-heading"><span>01</span><div><h2>Personal details</h2><p>How your name appears across Voxa.</p></div></div><label>Display name<input value={profileName} onChange={e=>setProfileName(e.target.value)} autoComplete="name" required/></label><label>Email address<input value={session?.user.email||""} disabled/><small>Email changes are managed by your sign-in account.</small></label><div className="profile-save-row"><button className="primary">Save changes</button>{profileMessage&&<p className="auth-message" role="status">{profileMessage}</p>}</div></form><section className="profile-preferences"><div className="profile-section-heading"><span>02</span><div><h2>Communication</h2><p>Choose how Voxa sounds and feels.</p></div></div><div className="preference-grid"><label><span>Language<small>For messages and speech</small></span><select value={language} onChange={e=>{setLanguage(e.target.value);setVoiceName("")}}>{languages.map(([code,name])=><option key={code} value={code}>{name}</option>)}</select></label><label><span>Voice<small>{voices.length} available on this device</small></span><select value={voiceName} onChange={e=>setVoiceName(e.target.value)} disabled={!tts}><option value="">Automatic voice</option>{voices.filter(v=>v.lang.toLowerCase().startsWith(language.split("-")[0].toLowerCase())).map(v=><option key={`${v.name}-${v.lang}`} value={v.name}>{v.name} ({v.lang})</option>)}</select></label><label><span>Button size<small>Communication card sizing</small></span><select value={buttonSize} onChange={e=>setButtonSize(e.target.value)}><option value="standard">Standard</option><option value="large">Large</option><option value="extra-large">Extra Large</option></select></label><div className="preference-toggle"><span><b>Text to speech</b><small>Read messages aloud</small></span><Toggle value={tts} set={setTts}/></div></div></section><section className="danger-zone"><div><span className="danger-icon" aria-hidden>!</span><div><h2>Delete account</h2><p>Permanently remove your profile, saved phrases, history, routines, and settings.</p></div></div><button onClick={()=>{setDeleteOpen(true);setDeleteText("");setDeleteError("")}}>Delete my account</button></section></div></Page>}
-    {page==="Settings"&&<Page title="Settings" sub="Choose how Voxa looks, feels, and speaks."><div className="settings"><Setting title="Communication style" desc="How Voxa phrases your choices"><select value={style} onChange={e=>setStyle(e.target.value as Style)}><option value="direct">Direct</option><option value="natural">Natural</option><option value="detailed">Detailed</option></select></Setting><Setting title="Language" desc="Language used for new messages and speech"><select value={language} onChange={e=>{setLanguage(e.target.value);setVoiceName("")}}>{languages.map(([code,name])=><option key={code} value={code}>{name}</option>)}</select></Setting><Setting title="Button size" desc="Adjust visual communication cards"><select value={buttonSize} onChange={e=>setButtonSize(e.target.value)}><option value="standard">Standard</option><option value="large">Large</option><option value="extra-large">Extra Large</option></select></Setting><Setting title="Text to speech" desc="Allow Voxa to read messages aloud"><Toggle value={tts} set={setTts}/></Setting><Setting title="Auto Speak" desc="Speak immediately after generation"><Toggle value={autoSpeak} set={setAutoSpeak}/></Setting><Setting title="Voice" desc={`${voices.length} voices available on this device`}><select value={voiceName} onChange={e=>setVoiceName(e.target.value)} disabled={!tts}><option value="">Automatic voice for selected language</option>{languages.map(([code,name])=>{const matches=voices.filter(v=>v.lang.toLowerCase().startsWith(code.split("-")[0].toLowerCase()));return matches.length?<optgroup key={code} label={name}>{matches.map(v=><option key={`${v.name}-${v.lang}`} value={v.name}>{v.name} ({v.lang})</option>)}</optgroup>:null})}</select></Setting><Setting title="Test selected voice" desc="Hear the currently selected language and voice"><button className="outline" disabled={!tts} onClick={()=>speak(language.startsWith("es")?"Hola, esta es mi voz.":language.startsWith("fr")?"Bonjour, voici ma voix.":language.startsWith("de")?"Hallo, das ist meine Stimme.":language.startsWith("it")?"Ciao, questa è la mia voce.":language.startsWith("pt")?"Olá, esta é a minha voz.":language.startsWith("ja")?"こんにちは、これが私の声です。":language.startsWith("ko")?"안녕하세요, 이것은 제 목소리입니다.":language.startsWith("zh")?"你好，这是我的声音。":"Hello, this is my voice.")}>▶ Test voice</button></Setting><Setting title="Show icons" desc="Display icons alongside text"><Toggle value={icons} set={setIcons}/></Setting><Setting title="Animations" desc="Use subtle interface movement"><Toggle value={animations} set={setAnimations}/></Setting></div><p className="notice">Voice availability depends on the voices installed in your browser or device. New Gemini-generated messages use your selected language. All settings are saved on this device.</p></Page>}
+    {page==="Settings"&&<Page title="Settings" sub="Choose how Voxa looks, feels, and speaks."><div className="settings"><Setting title="Communication style" desc="How Voxa phrases your choices"><select value={style} onChange={e=>setStyle(e.target.value as Style)}><option value="direct">Direct</option><option value="natural">Natural</option><option value="detailed">Detailed</option></select></Setting><Setting title="Language" desc="Language used for new messages and speech"><select value={language} onChange={e=>{setLanguage(e.target.value);setVoiceName("")}}>{languages.map(([code,name])=><option key={code} value={code}>{name}</option>)}</select></Setting><Setting title="Button size" desc="Adjust visual communication cards"><select value={buttonSize} onChange={e=>setButtonSize(e.target.value)}><option value="standard">Standard</option><option value="large">Large</option><option value="extra-large">Extra Large</option></select></Setting><Setting title="Text to speech" desc="Allow Voxa to read messages aloud"><Toggle value={tts} set={setTts}/></Setting><Setting title="Auto Speak" desc="Speak immediately after generation"><Toggle value={autoSpeak} set={setAutoSpeak}/></Setting><Setting title="Voice" desc={`${voices.length} voices available on this device`}><select value={voiceName} onChange={e=>setVoiceName(e.target.value)} disabled={!tts}><option value="">Automatic voice for selected language</option>{languages.map(([code,name])=>{const matches=voices.filter(v=>v.lang.toLowerCase().startsWith(code.split("-")[0].toLowerCase()));return matches.length?<optgroup key={code} label={name}>{matches.map(v=><option key={`${v.name}-${v.lang}`} value={v.name}>{v.name} ({v.lang})</option>)}</optgroup>:null})}</select></Setting><Setting title="Test selected voice" desc="Hear the currently selected language and voice"><button className="outline" disabled={!tts} onClick={()=>speak(language.startsWith("es")?"Hola, esta es mi voz.":language.startsWith("fr")?"Bonjour, voici ma voix.":language.startsWith("de")?"Hallo, das ist meine Stimme.":language.startsWith("it")?"Ciao, questa è la voce.":language.startsWith("pt")?"Olá, esta é minha voz.":language.startsWith("ja")?"こんにちは、これが私の声です。":language.startsWith("ko")?"안녕하세요, 이것은 제 목소리입니다.":language.startsWith("zh")?"你好，这是我的声音。":"Hello, this is my voice.")}>▶ Test voice</button></Setting><Setting title="Show icons" desc="Display icons alongside text"><Toggle value={icons} set={setIcons}/></Setting><Setting title="Animations" desc="Use subtle interface movement"><Toggle value={animations} set={setAnimations}/></Setting></div><p className="notice">Voice availability depends on the voices installed in your browser or device. New Gemini-generated messages use your selected language. Signed-in settings sync securely to your account.</p></Page>}
     {deleteOpen&&<div className="dialog-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget&&!deleteBusy)setDeleteOpen(false)}}><section className="delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-description"><button className="dialog-close" aria-label="Close" disabled={deleteBusy} onClick={()=>setDeleteOpen(false)}>×</button><span className="danger-icon" aria-hidden>!</span><h2 id="delete-title">Delete your Voxa account?</h2><p id="delete-description">This permanently deletes your account and all of its Voxa data. This cannot be undone.</p><label>Type <b>DELETE</b> to confirm<input autoFocus value={deleteText} onChange={e=>setDeleteText(e.target.value)} autoComplete="off"/></label>{deleteError&&<p className="delete-error" role="alert">{deleteError}</p>}<div><button className="outline" disabled={deleteBusy} onClick={()=>setDeleteOpen(false)}>Cancel</button><button className="delete-confirm" disabled={deleteText!=="DELETE"||deleteBusy} onClick={()=>void deleteAccount()}>{deleteBusy?"Deleting…":"Permanently delete"}</button></div></section></div>}
   </main>
 }
 
 function Logo(){return <span className="logo" aria-hidden><i/><i/><i/></span>}
-function Page({title,sub,children}:{title:string;sub:string;children:React.ReactNode}){return <section className="page"><p className="eyebrow">VOXA</p><h1>{title}</h1><p className="page-sub">{sub}</p>{children}</section>}
+function Page({title,sub,children}:{title:string;sub:string;children:React.ReactNode}){const titleRef=useRef<HTMLHeadingElement>(null);useEffect(()=>{titleRef.current?.focus()},[title]);return <section className="page"><p className="eyebrow">VOXA</p><h1 ref={titleRef} tabIndex={-1}>{title}</h1><p className="page-sub">{sub}</p>{children}</section>}
 function Empty({title,text}:{title:string;text:string}){return <div className="empty"><span>○</span><h3>{title}</h3><p>{text}</p></div>}
 const SettingLabelContext=createContext("Text to speech");
 function Setting({title,desc,children}:{title:string;desc:string;children:React.ReactNode}){return <SettingLabelContext.Provider value={title}><div className="setting"><div><b>{title}</b><p>{desc}</p></div>{children}</div></SettingLabelContext.Provider>}
@@ -441,7 +476,14 @@ function Landing({user,onEnter,onDemo}:{user:User|null;onEnter:()=>void;onDemo:(
       <div className="footer-brand">
         <span className="brand"><Logo/><span>Voxa</span></span>
         <p>Communication, made clearer.</p>
-        <nav aria-label="Footer navigation"><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+        <nav aria-label="Footer navigation">
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a className="github-link" href="https://github.com/pranavtandra/voxa" target="_blank" rel="noopener noreferrer">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.24c-3.23.7-3.91-1.37-3.91-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.72 1.27 3.38.97.1-.75.4-1.27.74-1.56-2.58-.29-5.29-1.29-5.29-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.47.11-3.05 0 0 .97-.31 3.16 1.18a10.95 10.95 0 0 1 5.76 0c2.19-1.49 3.16-1.18 3.16-1.18.63 1.58.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.72 5.39-5.31 5.68.42.36.79 1.07.79 2.17v3.25c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg>
+            <span>GitHub</span>
+          </a>
+        </nav>
       </div>
       <div className="footer-privacy">
         <p className="eyebrow">Privacy, plainly</p>

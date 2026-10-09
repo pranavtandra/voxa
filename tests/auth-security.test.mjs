@@ -5,9 +5,10 @@ import test from "node:test";
 const root = new URL("../", import.meta.url);
 
 test("Voxa exposes the complete email account lifecycle", async () => {
-  const [page, client] = await Promise.all([
+  const [page, client, persistence] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("lib/supabase.ts", root), "utf8"),
+    readFile(new URL("lib/persistence.ts", root), "utf8"),
   ]);
   assert.match(page, /auth\.signUp/);
   assert.match(page, /auth\.signInWithPassword/);
@@ -23,16 +24,18 @@ test("Voxa exposes the complete email account lifecycle", async () => {
   assert.match(page, /auth\.signOut/);
   assert.match(page, /auth\.signOut\(\{scope:"local"\}\)/, "logout should end the current browser session");
   assert.match(page, /Logging out…/, "logout should prevent duplicate clicks while the request is active");
-  assert.match(page, /upsert\(accountData,\{onConflict:"user_id,key"\}\)/, "logout should flush pending account data before ending the session");
+  assert.match(page, /await flushPersistenceQueue\(\)/, "logout should flush pending account data before ending the session");
+  assert.match(page, /getPersistenceStatus\(\)\.pending>0/, "logout should remain blocked while writes are pending");
   assert.match(page, /Voxa couldn't save your latest changes/, "a failed final sync should keep the user logged in");
   assert.doesNotMatch(page, /localStorage\.setItem\(key,JSON\.stringify\(value\)\)/, "account communication data must not be mirrored into browser storage");
-  assert.match(page, /key:"voxa-custom",value:next/, "custom buttons should be confirmed by Supabase before the editor closes");
+  assert.match(page, /await queueButtonSave\(userId,item as CustomButtonRecord\)/, "custom buttons should enter the durable save queue before the editor closes");
   assert.match(page, /savingWord\?"Saving…":"Add word"/, "custom button saves should expose their pending state");
   assert.match(page, /async function recordHistory/, "spoken messages should use an explicit persistence path");
-  assert.match(page, /key:"voxa-history",value:merged/, "spoken history should be saved immediately to Supabase");
-  assert.match(page, /select\("key,value"\)\.eq\("user_id",userId\)/, "account startup should load saved values in one query");
+  assert.match(page, /await queueHistorySave\(userId,entry\)/, "spoken history should enter the durable save queue immediately");
+  assert.match(persistence, /select\("key,value"\)\.eq\("user_id", userId\)/, "account startup should load saved values in one query");
   assert.match(page, /pendingCloudLoads\.get\(userId\)/, "simultaneous preference hooks should share the startup query");
-  assert.match(page, /remote\.filter\(item=>item\.id!==entry\.id\)/, "history saves should merge with the latest cloud copy");
+  assert.match(persistence, /indexedDB\.open\(DB_NAME, 1\)/, "pending writes should survive page closure in IndexedDB");
+  assert.match(persistence, /window\.addEventListener\("online"/, "pending writes should retry when connectivity returns");
   assert.match(page, /PASSWORD_RECOVERY/);
   assert.match(page, /profile_complete/);
   assert.match(page, /SET UP YOUR PROFILE/);
@@ -85,7 +88,7 @@ test("Voxa media storage is private and owner-scoped", async () => {
   assert.equal((sql.match(/on storage\.objects for (select|insert|update|delete)/gi) || []).length, 4);
   assert.equal((sql.match(/owner_id = \(select auth\.uid\(\)\)::text/g) || []).length, 5);
   assert.equal((sql.match(/storage\.foldername\(name\)/g) || []).length, 5);
-  assert.match(media, /createSignedUrl\(path, SIGNED_URL_TTL_SECONDS\)/);
+  assert.match(media, /createSignedUrls\(paths, SIGNED_URL_TTL_SECONDS\)/, "private image URLs should be signed in one bounded request");
   assert.match(media, /\.upload\(path, file, \{ contentType: file\.type, upsert: false \}\)/);
   assert.match(page, /imagePath=`\$\{userId\}\/\$\{id\}\.\$\{extension\}`/);
   assert.match(page, /await uploadPrivateMedia\(imagePath,newImageFile\)/);
