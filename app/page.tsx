@@ -1,5 +1,10 @@
 "use client";
 
+/* eslint-disable jsx-a11y/no-autofocus -- Editors and confirmation dialogs receive focus only after an explicit user action. */
+/* eslint-disable jsx-a11y/label-has-associated-control -- The custom image input is nested inside its visible upload label. */
+/* eslint-disable react/no-unescaped-entities -- Product copy intentionally uses natural apostrophes. */
+/* eslint-disable @next/next/no-img-element -- User data URLs and the tiny local cursor asset do not benefit from image optimization. */
+
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
@@ -77,9 +82,9 @@ function generateCommunicationPhrase(items: Item[], style: Style) {
 function useLocal<T>(key:string, initial:T, persist=true) {
   const initialRef=useRef(initial);
   const skipNextWrite=useRef(true);
-  const [value,setValue]=useState<T>(()=>initialRef.current);
-  useEffect(()=>{skipNextWrite.current=true;setValue(initialRef.current);if(!persist)return;try{const v=localStorage.getItem(key);if(v)setValue(JSON.parse(v));}catch{}},[key,persist]);
-  useEffect(()=>{if(!persist)return;if(skipNextWrite.current){skipNextWrite.current=false;return;}try{localStorage.setItem(key,JSON.stringify(value));}catch{}},[key,persist,value]);
+  const [value,setValue]=useState<T>(initial);
+  useEffect(()=>{skipNextWrite.current=true;setValue(initialRef.current);if(!persist)return;try{const v=localStorage.getItem(key);if(v)setValue(JSON.parse(v));}catch{reportError("local-storage-read")}},[key,persist]);
+  useEffect(()=>{if(!persist)return;if(skipNextWrite.current){skipNextWrite.current=false;return;}try{localStorage.setItem(key,JSON.stringify(value));}catch{reportError("local-storage-write")}},[key,persist,value]);
   return [value,setValue] as const;
 }
 
@@ -102,7 +107,7 @@ function useCloudLocal<T>(key:string, initial:T, userId?:string, persist=true, a
   const [cloudUser,setCloudUser]=useState<string>();
   useEffect(()=>{
     let active=true;
-    if(!persist||!userId){setCloudUser(undefined);return;}
+    if(!persist||!userId)return;
     loadCloudData(userId).then(async(values)=>{
       if(!active)return;
       const cloudValue=values.get(key);
@@ -153,7 +158,10 @@ export default function Home() {
 
   useEffect(()=>{const load=()=>setVoices(window.speechSynthesis?.getVoices()||[]);load();window.speechSynthesis?.addEventListener("voiceschanged",load);return()=>window.speechSynthesis?.removeEventListener("voiceschanged",load)},[]);
   useEffect(()=>{historyRef.current=history},[history]);
+  // Session metadata is the source of truth after sign-in and profile updates.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(()=>{setProfileComplete(session?.user.user_metadata?.profile_complete===true);setProfileName(accountName)},[session?.user.id,session?.user.user_metadata?.profile_complete,accountName]);
+  /* eslint-disable react-hooks/exhaustive-deps -- The custom persistence setters used by the auth subscription are stable. */
   useEffect(()=>{
     void supabase.auth.getSession().then(({data})=>{setSession(data.session);setAuthReady(true)});
     const {data:{subscription}}=supabase.auth.onAuthStateChange((event,next)=>{
@@ -164,6 +172,7 @@ export default function Home() {
     });
     return()=>subscription.unsubscribe();
   },[]);
+  /* eslint-enable react-hooks/exhaustive-deps */
   useEffect(()=>{if(!session)return;if(localStorage.getItem("voxa-empty-phrases-v2"))return;setPhrases([]);setHistory(h=>h.filter(x=>![["10:42 AM","Could I have some water, please?"],["10:38 AM","It's too loud in here."]].some(([time,text])=>x.time===time&&x.text===text)));localStorage.setItem("voxa-empty-phrases-v2","1")},[session,setPhrases,setHistory]);
 
   function choose(item:Item){
@@ -173,7 +182,7 @@ export default function Home() {
   async function create(){
     const fallback=generateCommunicationPhrase(selected,style); setEditing(false);
     if(guest){setMessage(fallback);setSource("local");if(autoSpeak&&tts)setTimeout(()=>speak(fallback),0);return;}
-    try{const response=await fetch("/api/generate",{method:"POST",headers:{"content-type":"application/json","authorization":`Bearer ${session?.access_token||""}`},body:JSON.stringify({selections:selected.map(({id,label,category})=>({id,label,category})),style,language:languages.find(x=>x[0]===language)?.[1]||"English"})});if(!response.ok)throw new Error();const body=await response.json();const phrase=typeof body.phrase==="string"?body.phrase.trim():"";if(!phrase||phrase.length>280||/[{}\[\]]/.test(phrase)||/\b(id|label|category|json)\b\s*[:=]/i.test(phrase))throw new Error();setMessage(phrase);setSource("gemini");if(autoSpeak&&tts)setTimeout(()=>speak(phrase),0);}
+    try{const response=await fetch("/api/generate",{method:"POST",headers:{"content-type":"application/json","authorization":`Bearer ${session?.access_token||""}`},body:JSON.stringify({selections:selected.map(({id,label,category})=>({id,label,category})),style,language:languages.find(x=>x[0]===language)?.[1]||"English"})});if(!response.ok)throw new Error();const body=await response.json();const phrase=typeof body.phrase==="string"?body.phrase.trim():"";if(!phrase||phrase.length>280||/[{}[\]]/.test(phrase)||/\b(id|label|category|json)\b\s*[:=]/i.test(phrase))throw new Error();setMessage(phrase);setSource("gemini");if(autoSpeak&&tts)setTimeout(()=>speak(phrase),0);}
     catch{setMessage(fallback);setSource("local");if(autoSpeak&&tts)setTimeout(()=>speak(fallback),0);}
   }
   async function recordHistory(text:string){
@@ -251,7 +260,7 @@ export default function Home() {
     const {error}=await supabase.functions.invoke("delete-account",{body:{confirmation:"DELETE"}});
     if(error){setDeleteError("We couldn't delete your account. Please try again.");setDeleteBusy(false);return;}
     window.speechSynthesis?.cancel();
-    try{Object.keys(localStorage).filter(key=>key.startsWith("voxa-")||key.startsWith("sb-")).forEach(key=>localStorage.removeItem(key));}catch{}
+    try{Object.keys(localStorage).filter(key=>key.startsWith("voxa-")||key.startsWith("sb-")).forEach(key=>localStorage.removeItem(key));}catch{reportError("account-cache-clear")}
     await supabase.auth.signOut({scope:"local"});
     setDeleteBusy(false);setDeleteOpen(false);setEntered(false);setPage("Communicate");
   }

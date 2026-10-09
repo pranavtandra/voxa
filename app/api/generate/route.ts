@@ -35,7 +35,7 @@ function isCleanPhrase(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const phrase = value.trim();
   if (phrase.length < 2 || phrase.length > 280) return false;
-  if (/[{}\[\]]/.test(phrase)) return false;
+  if (/[{}[\]]/.test(phrase)) return false;
   if (/\b(id|label|category|selections?|json)\b\s*[:=]/i.test(phrase)) return false;
   if (/^```|```$/.test(phrase) || phrase.includes("\n")) return false;
   return /\p{L}/u.test(phrase);
