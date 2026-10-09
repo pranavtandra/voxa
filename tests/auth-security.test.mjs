@@ -129,5 +129,8 @@ test("automatic error reports exclude communication and identity data", async ()
     assert.match(reporting, new RegExp(`delete event\\.${field}`));
   }
   assert.match(reporting, /exception\.value = "Redacted Voxa client error"/);
+  assert.match(reporting, /import\("@sentry\/react"\)/);
+  assert.match(reporting, /window\.addEventListener\("unhandledrejection"/);
+  assert.doesNotMatch(reporting, /^import \* as Sentry/m);
   assert.doesNotMatch(reporting, /replayIntegration|browserTracingIntegration/);
 });
