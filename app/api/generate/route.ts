@@ -13,8 +13,8 @@ const MAX_CONCEPTS = 12;
 const MAX_LABEL_LENGTH = 80;
 const ALLOWED_STYLES = new Set(["direct", "natural", "detailed"]);
 
-function errorResponse(error: string, status: number) {
-  return Response.json({ error }, { status, headers: { "cache-control": "no-store" } });
+function errorResponse(error: string, status: number, headers?: Record<string, string>) {
+  return Response.json({ error }, { status, headers: { "cache-control": "no-store", ...headers } });
 }
 
 async function authenticate(request: Request) {
@@ -28,7 +28,7 @@ async function authenticate(request: Request) {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
   const { data: { user }, error } = await client.auth.getUser(token);
-  return error ? null : user;
+  return error || !user ? null : { user, client };
 }
 
 function isCleanPhrase(value: unknown): value is string {
@@ -42,7 +42,12 @@ function isCleanPhrase(value: unknown): value is string {
 }
 
 export async function POST(request: Request) {
-  if (!await authenticate(request)) return errorResponse("Unauthorized", 401);
+  const auth = await authenticate(request);
+  if (!auth) return errorResponse("Unauthorized", 401);
+
+  const { data: quotaAvailable, error: quotaError } = await auth.client.rpc("consume_generation_quota");
+  if (quotaError) return errorResponse("Service unavailable", 503);
+  if (!quotaAvailable) return errorResponse("Too many requests", 429, { "retry-after": "60" });
 
   const key = process.env.GEMINI_API_KEY;
   if (!key) return errorResponse("Private mode", 503);

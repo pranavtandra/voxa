@@ -1,6 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
 const defaultOrigins = ["https://voxa-communication.vercel.app"];
+const MAX_BODY_BYTES = 8_192;
 const allowedOrigins = new Set(
   (Deno.env.get("VOXA_ALLOWED_ORIGINS") || defaultOrigins.join(","))
     .split(",")
@@ -28,7 +29,11 @@ Deno.serve(async (request) => {
   const authorization = request.headers.get("Authorization");
   if (!authorization?.startsWith("Bearer ")) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: jsonHeaders });
 
-  const body = await request.json().catch(() => ({}));
+  const declaredSize = Number(request.headers.get("content-length") || 0);
+  if (declaredSize > MAX_BODY_BYTES) return new Response(JSON.stringify({ error: "Request too large" }), { status: 413, headers: jsonHeaders });
+  const rawBody = await request.text();
+  if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) return new Response(JSON.stringify({ error: "Request too large" }), { status: 413, headers: jsonHeaders });
+  const body = (() => { try { return JSON.parse(rawBody); } catch { return {}; } })();
   if (body.confirmation !== "DELETE") return new Response(JSON.stringify({ error: "Confirmation required" }), { status: 400, headers: jsonHeaders });
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");

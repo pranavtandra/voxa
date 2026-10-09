@@ -15,8 +15,9 @@ test("Voxa exposes the complete email account lifecycle", async () => {
   assert.match(page, /Continue with Google/);
   assert.match(page, /redirectTo/);
   assert.match(page, /auth\.resetPasswordForEmail/);
-  assert.match(page, /data\.user\.identities/);
-  assert.match(page, /An account already exists for that email/);
+  assert.doesNotMatch(page, /data\.user\.identities/, "signup must not reveal whether an email is registered");
+  assert.doesNotMatch(page, /An account already exists for that email/);
+  assert.match(page, /If this address can receive a signup email/);
   assert.match(page, /If an account exists for that email/);
   assert.match(page, /auth\.updateUser/);
   assert.match(page, /auth\.signOut/);
@@ -24,7 +25,7 @@ test("Voxa exposes the complete email account lifecycle", async () => {
   assert.match(page, /Logging out…/, "logout should prevent duplicate clicks while the request is active");
   assert.match(page, /upsert\(accountData,\{onConflict:"user_id,key"\}\)/, "logout should flush pending account data before ending the session");
   assert.match(page, /Voxa couldn't save your latest changes/, "a failed final sync should keep the user logged in");
-  assert.match(page, /const localKey=userId\?`\$\{key\}:\$\{userId\}`/, "local caches should be isolated by account id");
+  assert.doesNotMatch(page, /localStorage\.setItem\(key,JSON\.stringify\(value\)\)/, "account communication data must not be mirrored into browser storage");
   assert.match(page, /key:"voxa-custom",value:next/, "custom buttons should be confirmed by Supabase before the editor closes");
   assert.match(page, /savingWord\?"Saving…":"Add word"/, "custom button saves should expose their pending state");
   assert.match(page, /async function recordHistory/, "spoken messages should use an explicit persistence path");
@@ -57,10 +58,27 @@ test("Voxa user data is protected by owner-scoped RLS", async () => {
   assert.match(sql, /for update[\s\S]+using[\s\S]+with check/i);
 });
 
+test("authenticated storage is bounded and generated sentences are rate limited", async () => {
+  const [migration, route] = await Promise.all([
+    readFile(new URL("supabase/migrations/20261009165633_constrain_user_data_and_rate_limit_generation.sql", root), "utf8"),
+    readFile(new URL("app/api/generate/route.ts", root), "utf8"),
+  ]);
+  assert.match(migration, /voxa_user_data_allowed_key/);
+  assert.match(migration, /pg_column_size\(value\) <= 2097152/);
+  assert.match(migration, /security invoker[\s\S]+set search_path = ''/i);
+  assert.match(migration, /caller_id uuid := \(select auth\.uid\(\)\)/);
+  assert.equal((migration.match(/on private\.generation_rate_limits for (select|insert|update)/gi) || []).length, 3);
+  assert.match(migration, /revoke all on function public\.consume_generation_quota\(\) from public, anon/i);
+  assert.match(route, /client\.rpc\("consume_generation_quota"\)/);
+  assert.match(route, /errorResponse\("Too many requests", 429/);
+  assert.match(route, /errorResponse\("Service unavailable", 503\)/);
+});
+
 test("Voxa media storage is private and owner-scoped", async () => {
-  const [sql, media] = await Promise.all([
+  const [sql, media, page] = await Promise.all([
     readFile(new URL("supabase/migrations/20261008190823_harden_user_data_and_private_storage.sql", root), "utf8"),
     readFile(new URL("lib/private-media.ts", root), "utf8"),
+    readFile(new URL("app/page.tsx", root), "utf8"),
   ]);
   assert.match(sql, /'voxa-user-media'[\s\S]+false/i);
   assert.match(sql, /update storage\.buckets set public = false/i);
@@ -68,6 +86,9 @@ test("Voxa media storage is private and owner-scoped", async () => {
   assert.equal((sql.match(/owner_id = \(select auth\.uid\(\)\)::text/g) || []).length, 5);
   assert.equal((sql.match(/storage\.foldername\(name\)/g) || []).length, 5);
   assert.match(media, /createSignedUrl\(path, SIGNED_URL_TTL_SECONDS\)/);
+  assert.match(media, /\.upload\(path, file, \{ contentType: file\.type, upsert: false \}\)/);
+  assert.match(page, /imagePath=`\$\{userId\}\/\$\{id\}\.\$\{extension\}`/);
+  assert.match(page, /await uploadPrivateMedia\(imagePath,newImageFile\)/);
   assert.doesNotMatch(media, /getPublicUrl/);
 });
 
@@ -87,7 +108,7 @@ test("guest access stays local-only and does not create a Supabase identity", as
   const page = await readFile(new URL("app/page.tsx", root), "utf8");
   assert.match(page, /Continue as guest/);
   assert.match(page, /const persist=!guest/);
-  assert.match(page, /if\(!persist\)return;if\(skipNextWrite\.current\)/);
+  assert.doesNotMatch(page, /function useLocal/);
   assert.match(page, /if\(!persist\|\|!userId\)/);
   assert.match(page, /if\(guest\)\{setMessage\(fallback\)/);
   assert.doesNotMatch(page, /signInAnonymously/);
@@ -121,6 +142,7 @@ test("deployment responses use defensive browser headers and strict CORS", async
   assert.doesNotMatch(edgeFunction, /"Access-Control-Allow-Origin": "\*"/);
   assert.match(edgeFunction, /allowedOrigins\.has\(origin\)/);
   assert.match(edgeFunction, /"Cache-Control": "no-store"/);
+  assert.match(edgeFunction, /MAX_BODY_BYTES = 8_192/);
 });
 
 test("automatic error reports exclude communication and identity data", async () => {
