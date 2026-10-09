@@ -35,3 +35,10 @@ test("Voxa includes loading, empty, error, and privacy states", async () => {
   assert.match(page, /Voxa couldn't save this button/);
   assert.match(page, /Voxa couldn't save your latest changes/);
 });
+
+test("the guided demo speaks only after the Speak button step begins", async () => {
+  const page = await readFile(new URL("app/page.tsx", root), "utf8");
+
+  assert.match(page, /demoStep!==5/);
+  assert.doesNotMatch(page, /speakTimer|5250/);
+});

@@ -267,9 +267,14 @@ export default function Home() {
   useEffect(()=>{
     if(!demo)return;
     const timers=[1100,2500,3900,5600,7600].map((delay,index)=>window.setTimeout(()=>setDemoStep(index+1),delay));
-    const speakTimer=window.setTimeout(()=>{if("speechSynthesis" in window){window.speechSynthesis.cancel();window.speechSynthesis.speak(new SpeechSynthesisUtterance("It's too loud and I'm feeling overwhelmed. Could I take a break?"));}},5250);
-    return()=>{timers.forEach(clearTimeout);clearTimeout(speakTimer)};
+    return()=>timers.forEach(clearTimeout);
   },[demo]);
+  useEffect(()=>{
+    if(!demo||demoStep!==5||!("speechSynthesis" in window))return;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance("It's too loud and I'm feeling overwhelmed. Could I take a break?"));
+    return()=>window.speechSynthesis.cancel();
+  },[demo,demoStep]);
 
   if(demo) return <GuidedDemo step={demoStep} onExit={exitDemo} onTry={enterFromDemo} onReplay={()=>{setDemoStep(0);setDemo(false);setTimeout(()=>setDemo(true),30)}}/>;
   if(!authReady)return <main className="auth-page voxa-loading"><section className="auth-card loading-card" role="status" aria-live="polite"><div className="loading-mark"><Logo/><i aria-hidden/></div><p>Loading Voxa<span className="loading-dots" aria-hidden><i/><i/><i/></span></p><div className="loading-track" aria-hidden><i/></div><small>Preparing your communication space</small></section></main>;
