@@ -51,6 +51,7 @@ alter table public.voxa_user_data
 -- interface is the narrowly scoped authenticated RPC below.
 create schema if not exists private;
 revoke all on schema private from public, anon, authenticated;
+grant usage on schema private to authenticated;
 
 create table if not exists private.generation_rate_limits (
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -63,11 +64,32 @@ create table if not exists private.generation_rate_limits (
 alter table private.generation_rate_limits enable row level security;
 alter table private.generation_rate_limits force row level security;
 revoke all on table private.generation_rate_limits from public, anon, authenticated;
+grant select, insert, update on table private.generation_rate_limits to authenticated;
+
+drop policy if exists "Users can read their own generation quota" on private.generation_rate_limits;
+drop policy if exists "Users can add their own generation quota" on private.generation_rate_limits;
+drop policy if exists "Users can update their own generation quota" on private.generation_rate_limits;
+
+create policy "Users can read their own generation quota"
+on private.generation_rate_limits for select
+to authenticated
+using ((select auth.uid()) = user_id);
+
+create policy "Users can add their own generation quota"
+on private.generation_rate_limits for insert
+to authenticated
+with check ((select auth.uid()) = user_id);
+
+create policy "Users can update their own generation quota"
+on private.generation_rate_limits for update
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
 
 create or replace function public.consume_generation_quota()
 returns boolean
 language plpgsql
-security definer
+security invoker
 set search_path = ''
 as $$
 declare

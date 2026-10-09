@@ -65,8 +65,9 @@ test("authenticated storage is bounded and generated sentences are rate limited"
   ]);
   assert.match(migration, /voxa_user_data_allowed_key/);
   assert.match(migration, /pg_column_size\(value\) <= 2097152/);
-  assert.match(migration, /security definer[\s\S]+set search_path = ''/i);
+  assert.match(migration, /security invoker[\s\S]+set search_path = ''/i);
   assert.match(migration, /caller_id uuid := \(select auth\.uid\(\)\)/);
+  assert.equal((migration.match(/on private\.generation_rate_limits for (select|insert|update)/gi) || []).length, 3);
   assert.match(migration, /revoke all on function public\.consume_generation_quota\(\) from public, anon/i);
   assert.match(route, /client\.rpc\("consume_generation_quota"\)/);
   assert.match(route, /errorResponse\("Too many requests", 429/);
