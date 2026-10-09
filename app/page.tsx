@@ -83,6 +83,18 @@ function useLocal<T>(key:string, initial:T, persist=true) {
   return [value,setValue] as const;
 }
 
+const pendingCloudLoads=new Map<string,Promise<Map<string,unknown>>>();
+function loadCloudData(userId:string){
+  const pending=pendingCloudLoads.get(userId);
+  if(pending)return pending;
+  const request=Promise.resolve(supabase.from("voxa_user_data").select("key,value").eq("user_id",userId).then(({data,error})=>{
+    if(error)throw error;
+    return new Map<string,unknown>((data||[]).map(row=>[row.key,row.value]));
+  })).finally(()=>{pendingCloudLoads.delete(userId)});
+  pendingCloudLoads.set(userId,request);
+  return request;
+}
+
 function useCloudLocal<T>(key:string, initial:T, userId?:string, persist=true, autoSave=true) {
   const initialRef=useRef(initial);
   const localKey=userId?`${key}:${userId}`:`${key}:signed-out`;
@@ -91,13 +103,13 @@ function useCloudLocal<T>(key:string, initial:T, userId?:string, persist=true, a
   useEffect(()=>{
     let active=true;
     if(!persist||!userId){setCloudUser(undefined);return;}
-    supabase.from("voxa_user_data").select("value").eq("user_id",userId).eq("key",key).maybeSingle().then(async({data,error})=>{
+    loadCloudData(userId).then(async(values)=>{
       if(!active)return;
-      if(error){reportError("sync-load");return;}
-      if(data?.value!==undefined)setValue(data.value as T);
+      const cloudValue=values.get(key);
+      if(cloudValue!==undefined)setValue(cloudValue as T);
       else {setValue(initialRef.current);await supabase.from("voxa_user_data").upsert({user_id:userId,key,value:initialRef.current},{onConflict:"user_id,key"});}
       if(active)setCloudUser(userId);
-    });
+    }).catch(()=>{if(active)reportError("sync-load")});
     return()=>{active=false};
   },[key,persist,userId,setValue]);
   useEffect(()=>{
