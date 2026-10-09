@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+/* eslint-disable jsx-a11y/no-autofocus -- Editors and confirmation dialogs receive focus only after an explicit user action. */
+/* eslint-disable jsx-a11y/label-has-associated-control -- The custom image input is nested inside its visible upload label. */
+/* eslint-disable react/no-unescaped-entities -- Product copy intentionally uses natural apostrophes. */
+/* eslint-disable @next/next/no-img-element -- User data URLs and the tiny local cursor asset do not benefit from image optimization. */
+
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { reportError } from "@/lib/error-reporting";
 
 type Style = "direct" | "natural" | "detailed";
 type Item = { id: string; label: string; emoji: string; category: string; phrase?: string; image?: string };
@@ -76,10 +82,22 @@ function generateCommunicationPhrase(items: Item[], style: Style) {
 function useLocal<T>(key:string, initial:T, persist=true) {
   const initialRef=useRef(initial);
   const skipNextWrite=useRef(true);
-  const [value,setValue]=useState<T>(()=>initialRef.current);
-  useEffect(()=>{skipNextWrite.current=true;setValue(initialRef.current);if(!persist)return;try{const v=localStorage.getItem(key);if(v)setValue(JSON.parse(v));}catch{}},[key,persist]);
-  useEffect(()=>{if(!persist)return;if(skipNextWrite.current){skipNextWrite.current=false;return;}try{localStorage.setItem(key,JSON.stringify(value));}catch{}},[key,persist,value]);
+  const [value,setValue]=useState<T>(initial);
+  useEffect(()=>{skipNextWrite.current=true;setValue(initialRef.current);if(!persist)return;try{const v=localStorage.getItem(key);if(v)setValue(JSON.parse(v));}catch{reportError("local-storage-read")}},[key,persist]);
+  useEffect(()=>{if(!persist)return;if(skipNextWrite.current){skipNextWrite.current=false;return;}try{localStorage.setItem(key,JSON.stringify(value));}catch{reportError("local-storage-write")}},[key,persist,value]);
   return [value,setValue] as const;
+}
+
+const pendingCloudLoads=new Map<string,Promise<Map<string,unknown>>>();
+function loadCloudData(userId:string){
+  const pending=pendingCloudLoads.get(userId);
+  if(pending)return pending;
+  const request=Promise.resolve(supabase.from("voxa_user_data").select("key,value").eq("user_id",userId).then(({data,error})=>{
+    if(error)throw error;
+    return new Map<string,unknown>((data||[]).map(row=>[row.key,row.value]));
+  })).finally(()=>{pendingCloudLoads.delete(userId)});
+  pendingCloudLoads.set(userId,request);
+  return request;
 }
 
 function useCloudLocal<T>(key:string, initial:T, userId?:string, persist=true, autoSave=true) {
@@ -89,19 +107,19 @@ function useCloudLocal<T>(key:string, initial:T, userId?:string, persist=true, a
   const [cloudUser,setCloudUser]=useState<string>();
   useEffect(()=>{
     let active=true;
-    if(!persist||!userId){setCloudUser(undefined);return;}
-    supabase.from("voxa_user_data").select("value").eq("user_id",userId).eq("key",key).maybeSingle().then(async({data,error})=>{
+    if(!persist||!userId)return;
+    loadCloudData(userId).then(async(values)=>{
       if(!active)return;
-      if(error){console.error("Voxa sync load failed",error);return;}
-      if(data?.value!==undefined)setValue(data.value as T);
+      const cloudValue=values.get(key);
+      if(cloudValue!==undefined)setValue(cloudValue as T);
       else {setValue(initialRef.current);await supabase.from("voxa_user_data").upsert({user_id:userId,key,value:initialRef.current},{onConflict:"user_id,key"});}
       if(active)setCloudUser(userId);
-    });
+    }).catch(()=>{if(active)reportError("sync-load")});
     return()=>{active=false};
   },[key,persist,userId,setValue]);
   useEffect(()=>{
     if(!autoSave||!persist||!userId||cloudUser!==userId)return;
-    void supabase.from("voxa_user_data").upsert({user_id:userId,key,value},{onConflict:"user_id,key"}).then(({error})=>{if(error)console.error("Voxa sync save failed",error)});
+    void supabase.from("voxa_user_data").upsert({user_id:userId,key,value},{onConflict:"user_id,key"}).then(({error})=>{if(error)reportError("sync-save")});
   },[autoSave,cloudUser,key,persist,userId,value]);
   return [value,setValue] as const;
 }
@@ -140,7 +158,10 @@ export default function Home() {
 
   useEffect(()=>{const load=()=>setVoices(window.speechSynthesis?.getVoices()||[]);load();window.speechSynthesis?.addEventListener("voiceschanged",load);return()=>window.speechSynthesis?.removeEventListener("voiceschanged",load)},[]);
   useEffect(()=>{historyRef.current=history},[history]);
+  // Session metadata is the source of truth after sign-in and profile updates.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(()=>{setProfileComplete(session?.user.user_metadata?.profile_complete===true);setProfileName(accountName)},[session?.user.id,session?.user.user_metadata?.profile_complete,accountName]);
+  /* eslint-disable react-hooks/exhaustive-deps -- The custom persistence setters used by the auth subscription are stable. */
   useEffect(()=>{
     void supabase.auth.getSession().then(({data})=>{setSession(data.session);setAuthReady(true)});
     const {data:{subscription}}=supabase.auth.onAuthStateChange((event,next)=>{
@@ -151,6 +172,7 @@ export default function Home() {
     });
     return()=>subscription.unsubscribe();
   },[]);
+  /* eslint-enable react-hooks/exhaustive-deps */
   useEffect(()=>{if(!session)return;if(localStorage.getItem("voxa-empty-phrases-v2"))return;setPhrases([]);setHistory(h=>h.filter(x=>![["10:42 AM","Could I have some water, please?"],["10:38 AM","It's too loud in here."]].some(([time,text])=>x.time===time&&x.text===text)));localStorage.setItem("voxa-empty-phrases-v2","1")},[session,setPhrases,setHistory]);
 
   function choose(item:Item){
@@ -160,7 +182,7 @@ export default function Home() {
   async function create(){
     const fallback=generateCommunicationPhrase(selected,style); setEditing(false);
     if(guest){setMessage(fallback);setSource("local");if(autoSpeak&&tts)setTimeout(()=>speak(fallback),0);return;}
-    try{const response=await fetch("/api/generate",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({selections:selected.map(({id,label,category})=>({id,label,category})),style,language:languages.find(x=>x[0]===language)?.[1]||"English"})});if(!response.ok)throw new Error();const body=await response.json();const phrase=typeof body.phrase==="string"?body.phrase.trim():"";if(!phrase||phrase.length>280||/[{}\[\]]/.test(phrase)||/\b(id|label|category|json)\b\s*[:=]/i.test(phrase))throw new Error();setMessage(phrase);setSource("gemini");if(autoSpeak&&tts)setTimeout(()=>speak(phrase),0);}
+    try{const response=await fetch("/api/generate",{method:"POST",headers:{"content-type":"application/json","authorization":`Bearer ${session?.access_token||""}`},body:JSON.stringify({selections:selected.map(({id,label,category})=>({id,label,category})),style,language:languages.find(x=>x[0]===language)?.[1]||"English"})});if(!response.ok)throw new Error();const body=await response.json();const phrase=typeof body.phrase==="string"?body.phrase.trim():"";if(!phrase||phrase.length>280||/[{}[\]]/.test(phrase)||/\b(id|label|category|json)\b\s*[:=]/i.test(phrase))throw new Error();setMessage(phrase);setSource("gemini");if(autoSpeak&&tts)setTimeout(()=>speak(phrase),0);}
     catch{setMessage(fallback);setSource("local");if(autoSpeak&&tts)setTimeout(()=>speak(fallback),0);}
   }
   async function recordHistory(text:string){
@@ -170,18 +192,18 @@ export default function Home() {
     historyRef.current=optimistic;setHistory(optimistic);
     if(!userId||guest)return;
     const {data,error:loadError}=await supabase.from("voxa_user_data").select("value").eq("user_id",userId).eq("key","voxa-history").maybeSingle();
-    if(loadError){console.error("Voxa history load failed",loadError);return;}
+    if(loadError){reportError("history-load");return;}
     const remote=Array.isArray(data?.value)?data.value as HistoryItem[]:[];
     const merged=[entry,...remote.filter(item=>item.id!==entry.id)].slice(0,100);
     const {error:saveError}=await supabase.from("voxa_user_data").upsert({user_id:userId,key:"voxa-history",value:merged},{onConflict:"user_id,key"});
-    if(saveError){console.error("Voxa history save failed",saveError);return;}
+    if(saveError){reportError("history-save");return;}
     historyRef.current=merged;setHistory(merged);
   }
   async function clearHistory(){
     historyRef.current=[];setHistory([]);
     if(!userId||guest)return;
     const {error}=await supabase.from("voxa_user_data").upsert({user_id:userId,key:"voxa-history",value:[]},{onConflict:"user_id,key"});
-    if(error)console.error("Voxa history clear failed",error);
+    if(error)reportError("history-clear");
   }
   function speak(text=message){if(!text||typeof window==="undefined"||!tts)return; window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang=language;const voice=voices.find(v=>v.name===voiceName)||voices.find(v=>v.lang.toLowerCase()===language.toLowerCase())||voices.find(v=>v.lang.toLowerCase().startsWith(language.split("-")[0].toLowerCase()));if(voice)u.voice=voice;u.onstart=()=>setSpeaking(true);u.onend=()=>setSpeaking(false);window.speechSynthesis.speak(u);void recordHistory(text);}
   function save(){if(!message)return;setPhrases(p=>p.some(x=>x.text===message)?p.filter(x=>x.text!==message):[{id:crypto.randomUUID(),text:message,favorite:true},...p]);}
@@ -238,7 +260,7 @@ export default function Home() {
     const {error}=await supabase.functions.invoke("delete-account",{body:{confirmation:"DELETE"}});
     if(error){setDeleteError("We couldn't delete your account. Please try again.");setDeleteBusy(false);return;}
     window.speechSynthesis?.cancel();
-    try{Object.keys(localStorage).filter(key=>key.startsWith("voxa-")||key.startsWith("sb-")).forEach(key=>localStorage.removeItem(key));}catch{}
+    try{Object.keys(localStorage).filter(key=>key.startsWith("voxa-")||key.startsWith("sb-")).forEach(key=>localStorage.removeItem(key));}catch{reportError("account-cache-clear")}
     await supabase.auth.signOut({scope:"local"});
     setDeleteBusy(false);setDeleteOpen(false);setEntered(false);setPage("Communicate");
   }
@@ -258,12 +280,12 @@ export default function Home() {
   return <main className={`app ${animations?"":"no-motion"}`}>
     <header className="topbar">
       <button className="brand" onClick={()=>setEntered(false)} aria-label="Voxa home"><Logo/> <span>Voxa</span></button>
-      <nav className="desktop-nav" aria-label="Main navigation">{["Communicate","Conversation","My Phrases","Routines","History","Customize","Patterns","Settings"].map(n=><button key={n} className={page===n?"active":""} onClick={()=>setPage(n)}>{n}</button>)}</nav>
+      <nav className="desktop-nav" aria-label="Main navigation">{["Communicate","Conversation","My Phrases","Routines","History","Customize","Patterns","Settings"].map(n=><button key={n} className={page===n?"active":""} aria-current={page===n?"page":undefined} onClick={()=>setPage(n)}>{n}</button>)}</nav>
       <div className="top-actions"><span className={`private ${guest?"guest-private":""}`}><i/> {guest?"Guest · Not saved":"Secure sync"}</span>{session?<button className={`account-button ${page==="Profile"?"active":""}`} onClick={()=>setPage("Profile")} aria-label={`Open ${accountName}'s profile`}><span className="account-avatar" aria-hidden>{accountName.slice(0,1).toUpperCase()}</span><span className="account-name">{accountName}</span><span aria-hidden>⌄</span></button>:<span className="account-button guest-account" aria-label="Guest session"><span className="account-avatar" aria-hidden>G</span><span className="account-name">Guest</span></span>}{logoutError&&<span className="logout-error" role="alert">{logoutError}</span>}<button type="button" className="logout" disabled={logoutBusy} onClick={()=>void logout()}>{guest?"Exit guest":logoutBusy?"Logging out…":"Log out"}</button></div>
     </header>
-    <nav className="mobile-nav" aria-label="Mobile navigation">{["Communicate","Conversation","My Phrases","Routines","History","Customize","Patterns","Settings"].map(n=><button key={n} className={page===n?"active":""} onClick={()=>setPage(n)}>{n.replace("My Phrases","Phrases")}</button>)}</nav>
+    <nav className="mobile-nav" aria-label="Mobile navigation">{["Communicate","Conversation","My Phrases","Routines","History","Customize","Patterns","Settings"].map(n=><button key={n} className={page===n?"active":""} aria-current={page===n?"page":undefined} onClick={()=>setPage(n)}>{n.replace("My Phrases","Phrases")}</button>)}</nav>
     {page==="Communicate"&&<div className="communicate">
-      <aside className="categories"><p className="eyebrow">COMMUNICATE</p><h2>What do you want to say?</h2>{categories.map(([id,label,emoji])=><button key={id} className={category===id?"selected-cat":""} onClick={()=>setCategory(id)}><span>{emoji}</span>{label}</button>)}<button className="demo-mini" onClick={startDemo}>▶ Demo Mode</button></aside>
+      <aside className="categories"><p className="eyebrow">COMMUNICATE</p><h2>What do you want to say?</h2>{categories.map(([id,label,emoji])=><button key={id} className={category===id?"selected-cat":""} aria-pressed={category===id} onClick={()=>setCategory(id)}><span aria-hidden>{emoji}</span>{label}</button>)}<button className="demo-mini" onClick={startDemo}>▶ Demo Mode</button></aside>
       <section className="board">
         <div className="board-head"><div><p className="eyebrow">{categories.find(c=>c[0]===category)?.[1]}</p><h1>{category==="feelings"?"How are you feeling?":category==="quick"?"Say it quickly":"Choose what you mean"}</h1><p>{category==="feelings"?"Select a feeling, then add what you need.":"Tap a card to add it to your choices."}</p></div><span className="count">{grid.length} choices</span></div>
         <div className={`card-grid size-${buttonSize}`}>{grid.map(item=><button key={item.id} className={`comm-card ${selected.some(s=>s.id===item.id)?"chosen":""}`} onClick={()=>choose(item)} aria-pressed={selected.some(s=>s.id===item.id)}>{selected.some(s=>s.id===item.id)&&<b className="check">✓</b>}{icons&&(item.image?<img className="card-image" src={item.image} alt=""/>:<span className="emoji">{item.emoji}</span>)}<strong>{item.label}</strong>{item.category==="help"&&<small>Quick access</small>}</button>)}<button className="comm-card add-word-card" onClick={()=>setAddingWord(true)}><span className="emoji">＋</span><strong>Add another word</strong><small>To {categories.find(c=>c[0]===category)?.[1]}</small></button></div>
@@ -273,9 +295,9 @@ export default function Home() {
       <aside className="message-panel">
         <div className="choices-label"><p className="eyebrow purple">YOU CHOSE</p><span>{selected.length} selected</span></div>
         <div className="chips">{selected.length?selected.map(i=><button key={i.id} onClick={()=>setSelected(s=>s.filter(x=>x.id!==i.id))}>{i.emoji} {i.label} <b>×</b></button>):<p>Your choices will appear here.</p>}</div>
-        <div className="style-row"><span>Communication style</span><select value={style} onChange={e=>setStyle(e.target.value as Style)}><option value="direct">Direct</option><option value="natural">Natural</option><option value="detailed">Detailed</option></select></div>
+        <div className="style-row"><span>Communication style</span><select aria-label="Communication style" value={style} onChange={e=>setStyle(e.target.value as Style)}><option value="direct">Direct</option><option value="natural">Natural</option><option value="detailed">Detailed</option></select></div>
         <button className="primary create" disabled={!selected.length} onClick={create}>✦ Create message</button>
-        <div className={`suggestion ${message?"ready":""}`}><div className="suggest-head"><p className="eyebrow mint">VOXA SUGGESTS</p><span>{source==="gemini"?"Language assistance":"Private · on-device"}</span></div>{editing?<textarea autoFocus value={message} onChange={e=>setMessage(e.target.value)}/>:<p className="suggested">{message||"Your natural-language message will appear here."}</p>}</div>
+        <div className={`suggestion ${message?"ready":""}`}><div className="suggest-head"><p className="eyebrow mint">VOXA SUGGESTS</p><span>{source==="gemini"?"Language assistance":"Private · on-device"}</span></div>{editing?<textarea aria-label="Edit suggested message" autoFocus value={message} onChange={e=>setMessage(e.target.value)}/>:<p className="suggested">{message||"Your natural-language message will appear here."}</p>}</div>
         <div className={`wave ${speaking?"playing":""}`} aria-hidden>{[1,2,3,4,5,6,7,8,9].map(n=><i key={n}/>)}</div>
         <div className="message-actions"><button className="speak" disabled={!message||!tts} onClick={()=>speaking?(window.speechSynthesis.cancel(),setSpeaking(false)):speak()}>{speaking?"■ Stop":"▶ Speak"}</button><button disabled={!message} onClick={()=>setEditing(!editing)}>✎ Edit</button><button disabled={!message} onClick={create}>↻ Another</button><button className={isSaved?"saved-heart":""} aria-pressed={isSaved} disabled={!message} onClick={save}>{isSaved?(guest?"♥ Kept for session":"♥ Saved"):(guest?"♡ Keep for session":"♡ Save")}</button></div>
         {composingConversation&&<button className="primary send-conversation" disabled={!message} onClick={()=>sendMyMessage()}>Send to conversation →</button>}
@@ -283,7 +305,7 @@ export default function Home() {
         <div className="principle"><b>🔒 You’re in control</b><p>Voxa only uses the choices you select. It never guesses what you mean.</p></div>
       </aside>
     </div>}
-    {emojiScreen&&<section className="emoji-screen" role="dialog" aria-modal="true" aria-labelledby="emoji-title"><header><button onClick={()=>setEmojiScreen(false)}>← Back</button><div><p className="eyebrow">CUSTOM WORD</p><h1 id="emoji-title">Choose an emoji</h1></div><span className="emoji-current">{newEmoji}</span></header><div className="emoji-search"><span>⌕</span><input autoFocus value={emojiQuery} onChange={e=>setEmojiQuery(e.target.value)} placeholder="Search emojis: try food, happy, school…"/></div><nav aria-label="Emoji categories">{["All",...Object.keys(emojiGroups)].map(group=><button key={group} className={emojiGroup===group?"selected":""} onClick={()=>setEmojiGroup(group)}>{group}</button>)}</nav><div className="emoji-library">{Object.entries(emojiGroups).filter(([group])=>emojiGroup==="All"||emojiGroup===group).map(([group,emojis])=>{const filtered=emojis.filter(emoji=>!emojiQuery.trim()||`${emoji} ${emojiSearchNames[emoji]||group}`.toLowerCase().includes(emojiQuery.toLowerCase()));return filtered.length?<section key={group}><h2>{group}</h2><div>{filtered.map((emoji,index)=><button key={`${emoji}-${index}`} aria-label={`Select ${emoji}`} onClick={()=>{setNewEmoji(emoji);setNewImage("");setEmojiScreen(false)}}>{emoji}</button>)}</div></section>:null})}</div></section>}
+    {emojiScreen&&<section className="emoji-screen" role="dialog" aria-modal="true" aria-labelledby="emoji-title"><header><button onClick={()=>setEmojiScreen(false)}>← Back</button><div><p className="eyebrow">CUSTOM WORD</p><h1 id="emoji-title">Choose an emoji</h1></div><span className="emoji-current">{newEmoji}</span></header><div className="emoji-search"><span aria-hidden>⌕</span><input aria-label="Search emojis" autoFocus value={emojiQuery} onChange={e=>setEmojiQuery(e.target.value)} placeholder="Search emojis: try food, happy, school…"/></div><nav aria-label="Emoji categories">{["All",...Object.keys(emojiGroups)].map(group=><button key={group} className={emojiGroup===group?"selected":""} aria-pressed={emojiGroup===group} onClick={()=>setEmojiGroup(group)}>{group}</button>)}</nav><div className="emoji-library">{Object.entries(emojiGroups).filter(([group])=>emojiGroup==="All"||emojiGroup===group).map(([group,emojis])=>{const filtered=emojis.filter(emoji=>!emojiQuery.trim()||`${emoji} ${emojiSearchNames[emoji]||group}`.toLowerCase().includes(emojiQuery.toLowerCase()));return filtered.length?<section key={group}><h2>{group}</h2><div>{filtered.map((emoji,index)=><button key={`${emoji}-${index}`} aria-label={`Select ${emoji}`} onClick={()=>{setNewEmoji(emoji);setNewImage("");setEmojiScreen(false)}}>{emoji}</button>)}</div></section>:null})}</div></section>}
     {page==="Conversation"&&<Page title="Conversation" sub="Take turns while keeping every message visible."><div className="conversation"><div className="conversation-head"><b>{conversation.length?`${conversation.length} messages`:"Start a conversation"}</b>{conversation.length>0&&<button className="clear" onClick={()=>setConversation([])}>Clear conversation</button>}</div><div className="conversation-thread" aria-live="polite">{conversation.length?conversation.map(item=><div key={item.id} className={`bubble ${item.side}`}><b>{item.side==="me"?"Me":"Conversation Partner"}</b><p>{item.text}</p>{item.side==="me"&&<button disabled={!tts} onClick={()=>speak(item.text)}>▶ Speak</button>}</div>):<Empty title="No messages yet." text="The conversation partner can type a message below."/>}</div><form className="partner-form" onSubmit={e=>{e.preventDefault();sendPartner()}}><label>Conversation partner<textarea value={partner} onChange={e=>setPartner(e.target.value)} placeholder="Type a question or message…"/></label><button className="primary" disabled={!partner.trim()}>Send message</button></form>{conversation.at(-1)?.side==="partner"&&<div className="suggestion-buttons"><b>Suggested responses</b>{(/hungry|lunch|eat|food/i.test(conversation.at(-1)?.text||"")?["Yes","No","I don't know","Choose food"]:/how are you|feel/i.test(conversation.at(-1)?.text||"")?["I'm okay","I'm not okay","I don't know","Choose a feeling"]:["Yes","No","I don't know","Give me a moment"]).map(x=><button key={x} onClick={()=>{if(x==="Choose food"){setCategory("food");setComposingConversation(true);setMessage("");setSelected([]);setPage("Communicate")}else if(x==="Choose a feeling"){setCategory("feelings");setComposingConversation(true);setMessage("");setSelected([]);setPage("Communicate")}else{const text=x+(/[?.!]$/.test(x)?"":".");addConversationMessage("me",text);setMessage(text)}}}>{x}</button>)}</div>}<button className="primary visual-reply" onClick={()=>{setComposingConversation(true);setMessage("");setSelected([]);setPage("Communicate")}}>Open visual choices</button></div></Page>}
     {page==="My Phrases"&&<Page title="My Phrases" sub="Only messages you intentionally save appear here."><div className="phrase-list">{phrases.length?phrases.map(p=><article key={p.id}><button className="favorite saved" aria-label="Remove saved phrase" title="Remove saved phrase" onClick={()=>setPhrases(x=>x.filter(q=>q.id!==p.id))}>♥</button><p>{p.text}</p><div><button disabled={!tts} onClick={()=>speak(p.text)}>▶ Speak</button><button onClick={()=>{setMessage(p.text);setPage("Communicate")}}>Reuse</button></div></article>):<Empty title="Your phrases will appear here." text="Press Save on a created message to keep it here."/>}</div></Page>}
     {page==="Routines"&&<Page title="Routines" sub="Ready-made sequences for moments you communicate through often.">{activeRoutine===null?<><div className="section-actions"><button className="primary" onClick={()=>setAddingRoutine(!addingRoutine)}>＋ Add routine</button></div>{addingRoutine&&<form className="routine-maker" onSubmit={addRoutine}><div><h3>Create a routine from saved phrases</h3><button type="button" aria-label="Close" onClick={()=>setAddingRoutine(false)}>×</button></div><label>Routine name<input autoFocus value={routineName} onChange={e=>setRoutineName(e.target.value)} placeholder="Getting ready"/></label><fieldset><legend>Choose saved phrases</legend>{phrases.length?phrases.map(p=><label key={p.id}><input type="checkbox" checked={routinePhrases.includes(p.text)} onChange={()=>setRoutinePhrases(x=>x.includes(p.text)?x.filter(t=>t!==p.text):[...x,p.text])}/><span>{p.text}</span></label>):<p>Save some messages first, then return here to build a routine.</p>}</fieldset><button className="primary" disabled={!routineName.trim()||!routinePhrases.length}>Create routine</button></form>}<div className="routine-grid">{routines.map((r,i)=><article key={r.id}><span>{r.emoji}</span><h3>{r.name}</h3><ol>{r.phrases.map(x=><li key={x}>{x}</li>)}</ol><button onClick={()=>{setActiveRoutine(i);setRoutineStep(0)}}>Start routine →</button></article>)}</div></>:<div className="routine-player"><button className="outline" onClick={()=>setActiveRoutine(null)}>← All routines</button><span>{routines[activeRoutine].emoji}</span><p className="eyebrow">{routines[activeRoutine].name.toUpperCase()}</p><h2>{routines[activeRoutine].phrases[routineStep]}</h2><p>Step {routineStep+1} of {routines[activeRoutine].phrases.length}</p><div><button className="primary" onClick={()=>speak(routines[activeRoutine].phrases[routineStep])}>▶ Speak this step</button><button className="outline" onClick={()=>{setMessage(routines[activeRoutine].phrases[routineStep]);setPage("Communicate")}}>Use in Communicate</button></div><div className="routine-nav"><button disabled={routineStep===0} onClick={()=>setRoutineStep(s=>s-1)}>← Previous</button>{routineStep<routines[activeRoutine].phrases.length-1?<button onClick={()=>setRoutineStep(s=>s+1)}>Next →</button>:<button onClick={()=>setActiveRoutine(null)}>Finish ✓</button>}</div></div>}</Page>}
@@ -299,8 +321,9 @@ export default function Home() {
 function Logo(){return <span className="logo" aria-hidden><i/><i/><i/></span>}
 function Page({title,sub,children}:{title:string;sub:string;children:React.ReactNode}){return <section className="page"><p className="eyebrow">VOXA</p><h1>{title}</h1><p className="page-sub">{sub}</p>{children}</section>}
 function Empty({title,text}:{title:string;text:string}){return <div className="empty"><span>○</span><h3>{title}</h3><p>{text}</p></div>}
-function Setting({title,desc,children}:{title:string;desc:string;children:React.ReactNode}){return <div className="setting"><div><b>{title}</b><p>{desc}</p></div>{children}</div>}
-function Toggle({value,set}:{value:boolean;set?:(v:boolean)=>void}){return <button type="button" role="switch" aria-checked={value} className={`toggle ${value?"on":""}`} onClick={()=>set?.(!value)}><i/></button>}
+const SettingLabelContext=createContext("Text to speech");
+function Setting({title,desc,children}:{title:string;desc:string;children:React.ReactNode}){return <SettingLabelContext.Provider value={title}><div className="setting"><div><b>{title}</b><p>{desc}</p></div>{children}</div></SettingLabelContext.Provider>}
+function Toggle({value,set}:{value:boolean;set?:(v:boolean)=>void}){const label=useContext(SettingLabelContext);return <button type="button" role="switch" aria-label={label} aria-checked={value} className={`toggle ${value?"on":""}`} onClick={()=>set?.(!value)}><i aria-hidden/></button>}
 function ProfileSetup({name,setName,language,setLanguage,buttonSize,setButtonSize,tts,setTts,voiceName,setVoiceName,voices,message,onSubmit}:{name:string;setName:(value:string)=>void;language:string;setLanguage:(value:string)=>void;buttonSize:string;setButtonSize:(value:string)=>void;tts:boolean;setTts:(value:boolean)=>void;voiceName:string;setVoiceName:(value:string)=>void;voices:SpeechSynthesisVoice[];message:string;onSubmit:(e:React.FormEvent)=>void}){
   const matchingVoices=voices.filter(v=>v.lang.toLowerCase().startsWith(language.split("-")[0].toLowerCase()));
   return <main className="profile-setup"><section><div className="auth-brand"><Logo/><span>Voxa</span></div><p className="eyebrow">SET UP YOUR PROFILE</p><h1>Make Voxa yours.</h1><p>Choose how Voxa should address you and speak your messages. You can change these choices later.</p><form onSubmit={onSubmit}><label>Name<input value={name} onChange={e=>setName(e.target.value)} autoComplete="name" required placeholder="Your name"/></label><div className="setup-grid"><label>Language<select value={language} onChange={e=>{setLanguage(e.target.value);setVoiceName("")}}>{languages.map(([code,label])=><option key={code} value={code}>{label}</option>)}</select></label><label>Voice<select value={voiceName} onChange={e=>setVoiceName(e.target.value)} disabled={!tts}><option value="">Automatic voice</option>{matchingVoices.map(v=><option key={`${v.name}-${v.lang}`} value={v.name}>{v.name} ({v.lang})</option>)}</select></label><label>Button size<select value={buttonSize} onChange={e=>setButtonSize(e.target.value)}><option value="standard">Standard</option><option value="large">Large</option><option value="extra-large">Extra Large</option></select></label><div className="setup-toggle"><span><b>Text to speech</b><small>Read messages aloud</small></span><Toggle value={tts} set={setTts}/></div></div><button className="primary">Save and enter Voxa →</button>{message&&<p className="auth-message" role="status">{message}</p>}</form></section></main>
@@ -401,9 +424,10 @@ function Landing({user,onEnter,onDemo}:{user:User|null;onEnter:()=>void;onDemo:(
     scrollFrame.current=window.requestAnimationFrame(step);
   }
   return <main className={`landing ${leaving?"landing-leaving":""}`} aria-busy={leaving}>
-  <header className="landing-nav"><button className="brand"><Logo/><span>Voxa</span></button><nav><a href="#how" onClick={event=>handleNav(event,"how")}>How it works</a><a href="#features" onClick={event=>handleNav(event,"features")}>Features</a><a href="#about" onClick={event=>handleNav(event,"about")}>About</a><a href="#privacy" onClick={event=>handleNav(event,"privacy")}>Privacy</a></nav><button className="nav-cta" onClick={handleEnter} disabled={leaving}>{user?"Open Voxa":"Log in"} →</button></header>
-  <section className="hero"><div className="hero-copy"><span className="pill">● Communication, made clearer</span><h1>Find your<br/><em>words.</em></h1><p>Voxa helps people communicate through simple visual choices, personalized phrases, and intelligent language assistance.</p><div><button className="primary" onClick={handleEnter} disabled={leaving}>{user?"Open Voxa":"Get started"} <span>→</span></button><button className="watch" onClick={onDemo} disabled={leaving}>▶ Watch demo</button></div><small>Private by default · Secure account required for the app</small></div>
-    <div className="hero-demo"><div className="demo-top"><div><Logo/><span><b>Building a message</b><small>Tap what you mean</small></span></div><i>•••</i></div><p className="eyebrow purple">YOUR CHOICES</p><div className="demo-choices"><span>👤 <b>I</b><small>1</small></span><span>☝️ <b>want</b><small>2</small></span><span>💧 <b>water</b><small>3</small></span></div><div className="connector"><i/><b>✦</b><i/></div><div className="demo-message"><p className="eyebrow mint">VOXA SUGGESTS</p><h3>“Could I have some water, please?”</h3><button aria-label="Speak message">▶</button><small>You chose the meaning. Voxa helped with the words.</small></div></div>
+  <a className="skip-link" href="#landing-content">Skip to main content</a>
+  <header className="landing-nav"><span className="brand"><Logo/><span>Voxa</span></span><nav><a href="#how" onClick={event=>handleNav(event,"how")}>How it works</a><a href="#features" onClick={event=>handleNav(event,"features")}>Features</a><a href="#about" onClick={event=>handleNav(event,"about")}>About</a><a href="#privacy" onClick={event=>handleNav(event,"privacy")}>Privacy</a></nav><button className="nav-cta" onClick={handleEnter} disabled={leaving}>{user?"Open Voxa":"Log in"} →</button></header>
+  <section id="landing-content" className="hero"><div className="hero-copy"><span className="pill">● Communication, made clearer</span><h1>Find your<br/><em>words.</em></h1><p>Voxa helps people communicate through simple visual choices, personalized phrases, and intelligent language assistance.</p><div><button className="primary" onClick={handleEnter} disabled={leaving}>{user?"Open Voxa":"Get started"} <span>→</span></button><button className="watch" onClick={onDemo} disabled={leaving}>▶ Watch demo</button></div><small>Private by default · Secure account required for the app</small></div>
+    <div className="hero-demo"><div className="demo-top"><div><Logo/><span><b>Building a message</b><small>Tap what you mean</small></span></div><i>•••</i></div><p className="eyebrow purple">YOUR CHOICES</p><div className="demo-choices"><span>👤 <b>I</b><small>1</small></span><span>☝️ <b>want</b><small>2</small></span><span>💧 <b>water</b><small>3</small></span></div><div className="connector"><i/><b>✦</b><i/></div><div className="demo-message"><p className="eyebrow mint">VOXA SUGGESTS</p><h2>“Could I have some water, please?”</h2><button aria-label="Speak message">▶</button><small>You chose the meaning. Voxa helped with the words.</small></div></div>
   </section>
   <section className="trust"><span>A FEW TAPS.</span><b>A complete thought.</b><span>ALWAYS YOUR WORDS.</span></section>
   <section id="how" className="how"><p className="eyebrow">HOW IT WORKS</p><h2>From a thought to a message.</h2><p>Simple enough for the moment. Thoughtful enough for the person.</p><div>{[["01","Choose","Select what you want, need, feel, or want someone to know.","☝️"],["02","Voxa helps","Your selections become a clear, natural phrase without changing your meaning.","✦"],["03","Communicate","Review it, change it, display it, or have Voxa say it aloud.","▶"]].map(x=><article key={x[0]}><small>{x[0]}</small><span>{x[3]}</span><h3>{x[1]}</h3><p>{x[2]}</p></article>)}</div><div className="flow"><span>Your choices</span><b>→</b><span className="voxa-flow"><Logo/> Voxa</span><b>→</b><span>Your message</span></div></section>

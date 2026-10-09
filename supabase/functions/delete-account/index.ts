@@ -1,14 +1,28 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
+const defaultOrigins = ["https://voxa-communication.vercel.app"];
+const allowedOrigins = new Set(
+  (Deno.env.get("VOXA_ALLOWED_ORIGINS") || defaultOrigins.join(","))
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
+
+function corsHeaders(origin: string | null) {
+  return {
+    ...(origin && allowedOrigins.has(origin) ? { "Access-Control-Allow-Origin": origin } : {}),
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Vary": "Origin",
+  };
+}
 
 Deno.serve(async (request) => {
-  if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const origin = request.headers.get("Origin");
+  const cors = corsHeaders(origin);
+  const jsonHeaders = { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" };
+  if (origin && !allowedOrigins.has(origin)) return new Response(JSON.stringify({ error: "Origin not allowed" }), { status: 403, headers: jsonHeaders });
+  if (request.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (request.method !== "POST") return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: jsonHeaders });
 
   const authorization = request.headers.get("Authorization");

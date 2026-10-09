@@ -14,10 +14,11 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@sentry/react": "11.6.0",
     "@supabase/supabase-js": "2.57.4",
     "drizzle-orm": "0.45.2",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "react-loading-skeleton": "3.5.0"
   },
   "devDependencies": {
@@ -36,12 +37,12 @@
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "16.4.0",
-    "react-server-dom-webpack": "19.2.6",
+    "react-server-dom-webpack": "19.2.8",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.59.3",
     "vinext": "1.0.0-beta.2",
-    "vite": "8.0.13",
+    "vite": "8.0.16",
     "wrangler": "4.92.0"
   },
   "type": "module"
