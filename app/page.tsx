@@ -349,11 +349,8 @@ function AuthScreen({recovery,onRecoveryDone,onBack,onGuest}:{recovery:boolean;o
       if(mode==="forgot"){const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:voxaUrl});if(error)throw error;setMessage("If an account exists for that email, we sent a secure password reset link. Check your inbox and spam folder.");return;}
       if(mode==="signup"){
         const {data,error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:voxaUrl,data:{full_name:name.trim()}}});
-        const existingError=error&&(["email_exists","user_already_exists"].includes(error.code||"")||/already (registered|exists)/i.test(error.message));
-        const existingIdentity=data.user&&Array.isArray(data.user.identities)&&data.user.identities.length===0;
-        if(existingError||existingIdentity){setMode("login");setPassword("");setConfirm("");setMessage("An account already exists for that email. Log in, or use Forgot password? to reset it.");return;}
         if(error)throw error;
-        if(!data.session)setMessage("Check your email to verify your account, then log in.");
+        if(!data.session)setMessage("If this address can receive a signup email, check your inbox. Otherwise, log in or reset your password.");
         return;
       }
       const {error}=await supabase.auth.signInWithPassword({email,password});if(error)throw error;

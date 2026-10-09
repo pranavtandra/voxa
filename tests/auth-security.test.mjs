@@ -15,8 +15,9 @@ test("Voxa exposes the complete email account lifecycle", async () => {
   assert.match(page, /Continue with Google/);
   assert.match(page, /redirectTo/);
   assert.match(page, /auth\.resetPasswordForEmail/);
-  assert.match(page, /data\.user\.identities/);
-  assert.match(page, /An account already exists for that email/);
+  assert.doesNotMatch(page, /data\.user\.identities/, "signup must not reveal whether an email is registered");
+  assert.doesNotMatch(page, /An account already exists for that email/);
+  assert.match(page, /If this address can receive a signup email/);
   assert.match(page, /If an account exists for that email/);
   assert.match(page, /auth\.updateUser/);
   assert.match(page, /auth\.signOut/);
@@ -55,6 +56,21 @@ test("Voxa user data is protected by owner-scoped RLS", async () => {
   assert.match(hardening, /grant select, insert, update, delete[^;]+to authenticated/i);
   assert.equal((hardening.match(/\(select auth\.uid\(\)\) = user_id/g) || []).length, 5);
   assert.match(sql, /for update[\s\S]+using[\s\S]+with check/i);
+});
+
+test("authenticated storage is bounded and generated sentences are rate limited", async () => {
+  const [migration, route] = await Promise.all([
+    readFile(new URL("supabase/migrations/20261009165633_constrain_user_data_and_rate_limit_generation.sql", root), "utf8"),
+    readFile(new URL("app/api/generate/route.ts", root), "utf8"),
+  ]);
+  assert.match(migration, /voxa_user_data_allowed_key/);
+  assert.match(migration, /pg_column_size\(value\) <= 2097152/);
+  assert.match(migration, /security definer[\s\S]+set search_path = ''/i);
+  assert.match(migration, /caller_id uuid := \(select auth\.uid\(\)\)/);
+  assert.match(migration, /revoke all on function public\.consume_generation_quota\(\) from public, anon/i);
+  assert.match(route, /client\.rpc\("consume_generation_quota"\)/);
+  assert.match(route, /errorResponse\("Too many requests", 429/);
+  assert.match(route, /errorResponse\("Service unavailable", 503\)/);
 });
 
 test("Voxa media storage is private and owner-scoped", async () => {
@@ -121,6 +137,7 @@ test("deployment responses use defensive browser headers and strict CORS", async
   assert.doesNotMatch(edgeFunction, /"Access-Control-Allow-Origin": "\*"/);
   assert.match(edgeFunction, /allowedOrigins\.has\(origin\)/);
   assert.match(edgeFunction, /"Cache-Control": "no-store"/);
+  assert.match(edgeFunction, /MAX_BODY_BYTES = 8_192/);
 });
 
 test("automatic error reports exclude communication and identity data", async () => {
