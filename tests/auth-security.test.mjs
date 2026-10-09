@@ -25,7 +25,7 @@ test("Voxa exposes the complete email account lifecycle", async () => {
   assert.match(page, /Logging out…/, "logout should prevent duplicate clicks while the request is active");
   assert.match(page, /upsert\(accountData,\{onConflict:"user_id,key"\}\)/, "logout should flush pending account data before ending the session");
   assert.match(page, /Voxa couldn't save your latest changes/, "a failed final sync should keep the user logged in");
-  assert.match(page, /const localKey=userId\?`\$\{key\}:\$\{userId\}`/, "local caches should be isolated by account id");
+  assert.doesNotMatch(page, /localStorage\.setItem\(key,JSON\.stringify\(value\)\)/, "account communication data must not be mirrored into browser storage");
   assert.match(page, /key:"voxa-custom",value:next/, "custom buttons should be confirmed by Supabase before the editor closes");
   assert.match(page, /savingWord\?"Saving…":"Add word"/, "custom button saves should expose their pending state");
   assert.match(page, /async function recordHistory/, "spoken messages should use an explicit persistence path");
@@ -75,9 +75,10 @@ test("authenticated storage is bounded and generated sentences are rate limited"
 });
 
 test("Voxa media storage is private and owner-scoped", async () => {
-  const [sql, media] = await Promise.all([
+  const [sql, media, page] = await Promise.all([
     readFile(new URL("supabase/migrations/20261008190823_harden_user_data_and_private_storage.sql", root), "utf8"),
     readFile(new URL("lib/private-media.ts", root), "utf8"),
+    readFile(new URL("app/page.tsx", root), "utf8"),
   ]);
   assert.match(sql, /'voxa-user-media'[\s\S]+false/i);
   assert.match(sql, /update storage\.buckets set public = false/i);
@@ -85,6 +86,9 @@ test("Voxa media storage is private and owner-scoped", async () => {
   assert.equal((sql.match(/owner_id = \(select auth\.uid\(\)\)::text/g) || []).length, 5);
   assert.equal((sql.match(/storage\.foldername\(name\)/g) || []).length, 5);
   assert.match(media, /createSignedUrl\(path, SIGNED_URL_TTL_SECONDS\)/);
+  assert.match(media, /\.upload\(path, file, \{ contentType: file\.type, upsert: false \}\)/);
+  assert.match(page, /imagePath=`\$\{userId\}\/\$\{id\}\.\$\{extension\}`/);
+  assert.match(page, /await uploadPrivateMedia\(imagePath,newImageFile\)/);
   assert.doesNotMatch(media, /getPublicUrl/);
 });
 
@@ -104,7 +108,7 @@ test("guest access stays local-only and does not create a Supabase identity", as
   const page = await readFile(new URL("app/page.tsx", root), "utf8");
   assert.match(page, /Continue as guest/);
   assert.match(page, /const persist=!guest/);
-  assert.match(page, /if\(!persist\)return;if\(skipNextWrite\.current\)/);
+  assert.doesNotMatch(page, /function useLocal/);
   assert.match(page, /if\(!persist\|\|!userId\)/);
   assert.match(page, /if\(guest\)\{setMessage\(fallback\)/);
   assert.doesNotMatch(page, /signInAnonymously/);

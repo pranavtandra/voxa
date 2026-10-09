@@ -15,3 +15,16 @@ export async function createPrivateMediaUrl(path: string) {
   if (error) throw error;
   return data.signedUrl;
 }
+
+export async function uploadPrivateMedia(path: string, file: File) {
+  const { error } = await supabase.storage
+    .from(VOXA_MEDIA_BUCKET)
+    .upload(path, file, { contentType: file.type, upsert: false });
+
+  if (error) throw error;
+}
+
+export async function removePrivateMedia(path: string) {
+  const { error } = await supabase.storage.from(VOXA_MEDIA_BUCKET).remove([path]);
+  if (error) throw error;
+}

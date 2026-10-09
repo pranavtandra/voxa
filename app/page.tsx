@@ -9,9 +9,10 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { reportError } from "@/lib/error-reporting";
+import { createPrivateMediaUrl, removePrivateMedia, uploadPrivateMedia } from "@/lib/private-media";
 
 type Style = "direct" | "natural" | "detailed";
-type Item = { id: string; label: string; emoji: string; category: string; phrase?: string; image?: string };
+type Item = { id: string; label: string; emoji: string; category: string; phrase?: string; image?: string; imagePath?: string };
 type SavedPhrase = { id: string; text: string; favorite: boolean };
 type HistoryItem = { id?: string; time: string; text: string; date?: string; category?: string };
 type ConversationMessage = { id: string; side: "me"|"partner"; text: string };
@@ -79,15 +80,6 @@ function generateCommunicationPhrase(items: Item[], style: Style) {
   return labels.join(". ") + (/[?.!]$/.test(labels.at(-1) || "") ? "" : ".");
 }
 
-function useLocal<T>(key:string, initial:T, persist=true) {
-  const initialRef=useRef(initial);
-  const skipNextWrite=useRef(true);
-  const [value,setValue]=useState<T>(initial);
-  useEffect(()=>{skipNextWrite.current=true;setValue(initialRef.current);if(!persist)return;try{const v=localStorage.getItem(key);if(v)setValue(JSON.parse(v));}catch{reportError("local-storage-read")}},[key,persist]);
-  useEffect(()=>{if(!persist)return;if(skipNextWrite.current){skipNextWrite.current=false;return;}try{localStorage.setItem(key,JSON.stringify(value));}catch{reportError("local-storage-write")}},[key,persist,value]);
-  return [value,setValue] as const;
-}
-
 const pendingCloudLoads=new Map<string,Promise<Map<string,unknown>>>();
 function loadCloudData(userId:string){
   const pending=pendingCloudLoads.get(userId);
@@ -102,12 +94,12 @@ function loadCloudData(userId:string){
 
 function useCloudLocal<T>(key:string, initial:T, userId?:string, persist=true, autoSave=true) {
   const initialRef=useRef(initial);
-  const localKey=userId?`${key}:${userId}`:`${key}:signed-out`;
-  const [value,setValue]=useLocal<T>(localKey,initial,persist&&Boolean(userId));
+  const [value,setValue]=useState<T>(initial);
   const [cloudUser,setCloudUser]=useState<string>();
   useEffect(()=>{
     let active=true;
-    if(!persist||!userId)return;
+    setValue(initialRef.current);setCloudUser(undefined);
+    if(!persist||!userId)return()=>{active=false};
     loadCloudData(userId).then(async(values)=>{
       if(!active)return;
       const cloudValue=values.get(key);
@@ -116,7 +108,7 @@ function useCloudLocal<T>(key:string, initial:T, userId?:string, persist=true, a
       if(active)setCloudUser(userId);
     }).catch(()=>{if(active)reportError("sync-load")});
     return()=>{active=false};
-  },[key,persist,userId,setValue]);
+  },[key,persist,userId]);
   useEffect(()=>{
     if(!autoSave||!persist||!userId||cloudUser!==userId)return;
     void supabase.from("voxa_user_data").upsert({user_id:userId,key,value},{onConflict:"user_id,key"}).then(({error})=>{if(error)reportError("sync-save")});
@@ -142,7 +134,7 @@ export default function Home() {
   const [partner,setPartner]=useState(""); const [customName,setCustomName]=useState("");
   const [routines,setRoutines]=useCloudLocal<Routine[]>("voxa-routines",defaultRoutines,userId,persist); const [addingRoutine,setAddingRoutine]=useState(false);
   const [routineName,setRoutineName]=useState(""); const [routinePhrases,setRoutinePhrases]=useState<string[]>([]);
-  const [addingWord,setAddingWord]=useState(false); const [savingWord,setSavingWord]=useState(false); const [newWord,setNewWord]=useState(""); const [newEmoji,setNewEmoji]=useState("✨"); const [newImage,setNewImage]=useState(""); const [imageError,setImageError]=useState(""); const [emojiScreen,setEmojiScreen]=useState(false); const [emojiQuery,setEmojiQuery]=useState(""); const [emojiGroup,setEmojiGroup]=useState("All");
+  const [addingWord,setAddingWord]=useState(false); const [savingWord,setSavingWord]=useState(false); const [newWord,setNewWord]=useState(""); const [newEmoji,setNewEmoji]=useState("✨"); const [newImage,setNewImage]=useState(""); const [newImageFile,setNewImageFile]=useState<File>(); const [imageUrls,setImageUrls]=useState<Record<string,string>>({}); const [imageError,setImageError]=useState(""); const [emojiScreen,setEmojiScreen]=useState(false); const [emojiQuery,setEmojiQuery]=useState(""); const [emojiGroup,setEmojiGroup]=useState("All");
   const [conversation,setConversation]=useCloudLocal<ConversationMessage[]>("voxa-conversation",[],userId,persist); const [composingConversation,setComposingConversation]=useState(false);
   const [custom,setCustom]=useCloudLocal<Item[]>("voxa-custom",[],userId,persist); const [demo,setDemo]=useState(false); const [demoStep,setDemoStep]=useState(0);
   const [source,setSource]=useState<"local"|"gemini">("local");
@@ -158,6 +150,15 @@ export default function Home() {
 
   useEffect(()=>{const load=()=>setVoices(window.speechSynthesis?.getVoices()||[]);load();window.speechSynthesis?.addEventListener("voiceschanged",load);return()=>window.speechSynthesis?.removeEventListener("voiceschanged",load)},[]);
   useEffect(()=>{historyRef.current=history},[history]);
+  useEffect(()=>{
+    let active=true;
+    const paths=[...new Set(custom.map(item=>item.imagePath).filter((path):path is string=>Boolean(path)))];
+    if(!session||paths.length===0)return()=>{active=false};
+    void Promise.all(paths.map(async path=>[path,await createPrivateMediaUrl(path)] as const))
+      .then(entries=>{if(active)setImageUrls(Object.fromEntries(entries))})
+      .catch(()=>{if(active)reportError("private-media-sign")});
+    return()=>{active=false};
+  },[custom,session]);
   // Session metadata is the source of truth after sign-in and profile updates.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(()=>{setProfileComplete(session?.user.user_metadata?.profile_complete===true);setProfileName(accountName)},[session?.user.id,session?.user.user_metadata?.profile_complete,accountName]);
@@ -213,16 +214,21 @@ export default function Home() {
   function clear(){setSelected([]);setMessage("");}
   async function addWord(e:React.FormEvent){
     e.preventDefault();const label=newWord.trim();if(!label||savingWord)return;
-    const item:Item={id:crypto.randomUUID(),label,emoji:newEmoji.trim()||"✨",image:newImage||undefined,category,phrase:["quick","questions","responses","help"].includes(category)?label+(/[?.!]$/.test(label)?"":"."):undefined};
-    const next=[...custom,item];setSavingWord(true);setImageError("");
-    if(userId&&!guest){const {error}=await supabase.from("voxa_user_data").upsert({user_id:userId,key:"voxa-custom",value:next},{onConflict:"user_id,key"});if(error){setImageError("Voxa couldn't save this button. Check your connection and try again.");setSavingWord(false);return;}}
-    setCustom(next);setNewWord("");setNewEmoji("✨");setNewImage("");setImageError("");setAddingWord(false);setSavingWord(false);
+    const id=crypto.randomUUID();let imagePath:string|undefined;
+    setSavingWord(true);setImageError("");
+    try{
+      if(userId&&!guest&&newImageFile){const extension=newImageFile.name.split(".").pop()?.toLowerCase()||"jpg";imagePath=`${userId}/${id}.${extension}`;await uploadPrivateMedia(imagePath,newImageFile);}
+      const item:Item={id,label,emoji:newEmoji.trim()||"✨",image:guest?newImage||undefined:undefined,imagePath,category,phrase:["quick","questions","responses","help"].includes(category)?label+(/[?.!]$/.test(label)?"":"."):undefined};
+      const next=[...custom,item];
+      if(userId&&!guest){const {error}=await supabase.from("voxa_user_data").upsert({user_id:userId,key:"voxa-custom",value:next},{onConflict:"user_id,key"});if(error)throw error;}
+      setCustom(next);setNewWord("");setNewEmoji("✨");setNewImage("");setNewImageFile(undefined);setImageError("");setAddingWord(false);
+    }catch{if(imagePath)void removePrivateMedia(imagePath).catch(()=>reportError("private-media-cleanup"));setImageError("Voxa couldn't save this button. Check your connection and try again.");reportError("custom-button-save")}finally{setSavingWord(false)}
   }
   function uploadCustomImage(file?:File){
     setImageError("");if(!file)return;
     if(!["image/jpeg","image/png","image/webp","image/gif"].includes(file.type)){setImageError("Choose a JPG, PNG, WebP, or GIF image.");return;}
     if(file.size>1024*1024){setImageError("Choose an image smaller than 1 MB.");return;}
-    const reader=new FileReader();reader.onload=()=>{if(typeof reader.result==="string"){setNewImage(reader.result);setEmojiScreen(false)}};reader.onerror=()=>setImageError("That image could not be read. Try another one.");reader.readAsDataURL(file);
+    const reader=new FileReader();reader.onload=()=>{if(typeof reader.result==="string"){setNewImage(reader.result);setNewImageFile(file);setEmojiScreen(false)}};reader.onerror=()=>setImageError("That image could not be read. Try another one.");reader.readAsDataURL(file);
   }
   function addRoutine(e:React.FormEvent){e.preventDefault();if(!routineName.trim()||!routinePhrases.length)return;setRoutines(x=>[...x,{id:crypto.randomUUID(),name:routineName.trim(),emoji:"✦",phrases:routinePhrases}]);setRoutineName("");setRoutinePhrases([]);setAddingRoutine(false)}
   function startDemo(){setDemo(true);setDemoStep(0)}
@@ -288,8 +294,8 @@ export default function Home() {
       <aside className="categories"><p className="eyebrow">COMMUNICATE</p><h2>What do you want to say?</h2>{categories.map(([id,label,emoji])=><button key={id} className={category===id?"selected-cat":""} aria-pressed={category===id} onClick={()=>setCategory(id)}><span aria-hidden>{emoji}</span>{label}</button>)}<button className="demo-mini" onClick={startDemo}>▶ Demo Mode</button></aside>
       <section className="board">
         <div className="board-head"><div><p className="eyebrow">{categories.find(c=>c[0]===category)?.[1]}</p><h1>{category==="feelings"?"How are you feeling?":category==="quick"?"Say it quickly":"Choose what you mean"}</h1><p>{category==="feelings"?"Select a feeling, then add what you need.":"Tap a card to add it to your choices."}</p></div><span className="count">{grid.length} choices</span></div>
-        <div className={`card-grid size-${buttonSize}`}>{grid.map(item=><button key={item.id} className={`comm-card ${selected.some(s=>s.id===item.id)?"chosen":""}`} onClick={()=>choose(item)} aria-pressed={selected.some(s=>s.id===item.id)}>{selected.some(s=>s.id===item.id)&&<b className="check">✓</b>}{icons&&(item.image?<img className="card-image" src={item.image} alt=""/>:<span className="emoji">{item.emoji}</span>)}<strong>{item.label}</strong>{item.category==="help"&&<small>Quick access</small>}</button>)}<button className="comm-card add-word-card" onClick={()=>setAddingWord(true)}><span className="emoji">＋</span><strong>Add another word</strong><small>To {categories.find(c=>c[0]===category)?.[1]}</small></button></div>
-        {addingWord&&<form className="inline-maker" onSubmit={addWord}><div><h3>Add to {categories.find(c=>c[0]===category)?.[1]}</h3><button type="button" aria-label="Close" disabled={savingWord} onClick={()=>setAddingWord(false)}>×</button></div><label>Word or phrase<input autoFocus disabled={savingWord} value={newWord} onChange={e=>setNewWord(e.target.value)} placeholder="Type your own"/></label><label>Emoji<button type="button" className="emoji-launch" disabled={savingWord} onClick={()=>setEmojiScreen(true)}><b>{newEmoji}</b><span>Choose an emoji</span><i>→</i></button></label><label>Or use your own picture<span className="custom-image-upload">{newImage?<img src={newImage} alt="Custom preview"/>:<b aria-hidden>↑</b>}<span>{newImage?"Choose a different picture":"Upload JPG, PNG, WebP, or GIF"}<small>Maximum 1 MB</small></span><input type="file" disabled={savingWord} accept="image/jpeg,image/png,image/webp,image/gif" onChange={e=>uploadCustomImage(e.target.files?.[0])}/></span></label>{newImage&&<button type="button" className="remove-custom-image" disabled={savingWord} onClick={()=>setNewImage("")}>Remove picture</button>}{imageError&&<p className="image-error" role="alert">{imageError}</p>}<button className="primary" disabled={savingWord}>{savingWord?"Saving…":"Add word"}</button></form>}
+        <div className={`card-grid size-${buttonSize}`}>{grid.map(item=>{const imageUrl=item.image||(item.imagePath?imageUrls[item.imagePath]:undefined);return <button key={item.id} className={`comm-card ${selected.some(s=>s.id===item.id)?"chosen":""}`} onClick={()=>choose(item)} aria-pressed={selected.some(s=>s.id===item.id)}>{selected.some(s=>s.id===item.id)&&<b className="check">✓</b>}{icons&&(imageUrl?<img className="card-image" src={imageUrl} alt=""/>:<span className="emoji">{item.emoji}</span>)}<strong>{item.label}</strong>{item.category==="help"&&<small>Quick access</small>}</button>})}<button className="comm-card add-word-card" onClick={()=>setAddingWord(true)}><span className="emoji">＋</span><strong>Add another word</strong><small>To {categories.find(c=>c[0]===category)?.[1]}</small></button></div>
+        {addingWord&&<form className="inline-maker" onSubmit={addWord}><div><h3>Add to {categories.find(c=>c[0]===category)?.[1]}</h3><button type="button" aria-label="Close" disabled={savingWord} onClick={()=>setAddingWord(false)}>×</button></div><label>Word or phrase<input autoFocus disabled={savingWord} value={newWord} onChange={e=>setNewWord(e.target.value)} placeholder="Type your own"/></label><label>Emoji<button type="button" className="emoji-launch" disabled={savingWord} onClick={()=>setEmojiScreen(true)}><b>{newEmoji}</b><span>Choose an emoji</span><i>→</i></button></label><label>Or use your own picture<span className="custom-image-upload">{newImage?<img src={newImage} alt="Custom preview"/>:<b aria-hidden>↑</b>}<span>{newImage?"Choose a different picture":"Upload JPG, PNG, WebP, or GIF"}<small>Maximum 1 MB</small></span><input type="file" disabled={savingWord} accept="image/jpeg,image/png,image/webp,image/gif" onChange={e=>uploadCustomImage(e.target.files?.[0])}/></span></label>{newImage&&<button type="button" className="remove-custom-image" disabled={savingWord} onClick={()=>{setNewImage("");setNewImageFile(undefined)}}>Remove picture</button>}{imageError&&<p className="image-error" role="alert">{imageError}</p>}<button className="primary" disabled={savingWord}>{savingWord?"Saving…":"Add word"}</button></form>}
         {grid.length===0&&<Empty title="No favorites yet." text="Favorite the things you use most to keep them close."/>}
       </section>
       <aside className="message-panel">
