@@ -74,7 +74,7 @@ test("speech saves to Supabase, persists, and recovers from network failure", as
     return route.continue();
   });
   await speak.click();
-  await expect(page.getByRole("alert")).toContainText("hasn't synced");
+  await expect(page.locator(".save-status[role='alert']")).toContainText("hasn't synced");
   expect((await rows()).length).toBe(before + 4);
   failing = false;
   await expect.poll(async () => (await rows()).length, { timeout: 15000 }).toBe(before + 5);
