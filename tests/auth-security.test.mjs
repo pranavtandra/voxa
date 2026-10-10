@@ -31,7 +31,8 @@ test("Voxa exposes the complete email account lifecycle", async () => {
   assert.match(page, /await queueButtonSave\(userId,item as CustomButtonRecord\)/, "custom buttons should enter the durable save queue before the editor closes");
   assert.match(page, /savingWord\?"Saving…":"Add word"/, "custom button saves should expose their pending state");
   assert.match(page, /async function recordHistory/, "spoken messages should use an explicit persistence path");
-  assert.match(page, /await queueHistorySave\(userId,entry\)/, "spoken history should enter the durable save queue immediately");
+  assert.match(page, /bindSpeechHistory\(u,/, "history should save when speech starts");
+  assert.match(page, /await queueHistorySave\(userId,entry\)/, "spoken history should await its durable Supabase save");
   assert.match(persistence, /select\("key,value"\)\.eq\("user_id", userId\)/, "account startup should load saved values in one query");
   assert.match(page, /pendingCloudLoads\.get\(userId\)/, "simultaneous preference hooks should share the startup query");
   assert.match(persistence, /indexedDB\.open\(DB_NAME, 1\)/, "pending writes should survive page closure in IndexedDB");
