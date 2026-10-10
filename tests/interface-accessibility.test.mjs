@@ -35,6 +35,7 @@ test("Voxa includes loading, empty, error, and privacy states", async () => {
   assert.match(page, /Loading Voxa/);
   assert.match(page, /function Empty/);
   assert.match(page, /No emojis found/);
+  assert.match(page, /href="mailto:pranav\.tandra123@gmail\.com"/, "the footer should expose an email contact link");
   assert.match(page, /role="alert"/);
   assert.match(page, /role="status"/);
   assert.match(page, /Guest · Not saved/);
