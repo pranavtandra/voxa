@@ -167,18 +167,20 @@ export async function flushPersistenceQueue() {
   if (!activeUserId || processing || (typeof navigator !== "undefined" && !navigator.onLine)) return processing;
   processing = (async () => {
     emit({ saving: true });
-    const writes = await listWrites(activeUserId!);
-    for (const write of writes) {
+    const userId = activeUserId!;
+    while (activeUserId === userId) {
+      const write = (await listWrites(userId))[0];
+      if (!write) break;
       if (write.nextAttemptAt > Date.now()) { scheduleRetry(write.nextAttemptAt - Date.now()); break; }
       try {
         await execute(write);
         await removeWrite(write.id);
-        emit({ pending: await countWrites(activeUserId!), lastSavedAt: Date.now(), lastError: undefined });
+        if (activeUserId === userId) emit({ pending: await countWrites(userId), lastSavedAt: Date.now(), lastError: undefined });
       } catch (error) {
         const attempts = write.attempts + 1;
         const delay = Math.min(30_000, 1_000 * 2 ** Math.min(attempts - 1, 5));
         await replaceWrite({ ...write, attempts, nextAttemptAt: Date.now() + delay });
-        emit({ pending: await countWrites(activeUserId!), lastError: readableError(error) });
+        if (activeUserId === userId) emit({ pending: await countWrites(userId), lastError: readableError(error) });
         reportError("persistence-retry");
         scheduleRetry(delay);
         break;
@@ -203,7 +205,23 @@ export async function queueSettingSave(userId: string, key: string, value: Json)
 }
 
 export async function queueHistorySave(userId: string, entry: HistoryRecord) {
-  return enqueue(userId, { kind: "history-upsert", entry });
+  let writeId: string;
+  try {
+    writeId = await enqueue(userId, { kind: "history-upsert", entry });
+  } catch (error) {
+    emit({ lastError: "History could not be queued for saving. Please try again." });
+    reportError("history-local-queue");
+    throw error;
+  }
+  await flushPersistenceQueue();
+  const stillPending = (await listWrites(userId)).some((write) => write.id === writeId);
+  if (stillPending) {
+    const message = status.lastError || (typeof navigator !== "undefined" && !navigator.onLine ? "You're offline. History will retry when your connection returns." : "History could not be saved yet. Voxa will retry automatically.");
+    emit({ lastError: message });
+    scheduleRetry(1_000);
+    throw new Error(message);
+  }
+  return writeId;
 }
 
 export async function queueHistoryClear(userId: string, beforeOccurredAt = new Date().toISOString()) {
