@@ -18,6 +18,8 @@ test("Voxa exposes essential keyboard and screen-reader semantics", async () => 
   assert.match(page, /aria-label="Search emojis"/);
   assert.match(page, /role="switch"/);
   assert.match(page, /aria-label=\{label\}/);
+  assert.match(page, /"my":"conversation partner"/, "conversation-partner messages should expose text-to-speech");
+  assert.match(page, /speak\(item\.text,item\.side==="me"\)/, "partner speech should not be saved as the user's history");
   assert.match(page, /role="alertdialog"/);
   assert.match(page, /event\.key==="Escape"/, "dialogs should close with the Escape key");
   assert.match(page, /event\.key!=="Tab"/, "dialogs should keep keyboard and switch focus inside the active surface");
