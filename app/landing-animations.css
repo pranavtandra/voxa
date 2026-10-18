@@ -6,7 +6,7 @@
 
 /* A composed handoff from the public story into the private app. */
 .landing{position:relative;transform-origin:50% 18%;transition:opacity .42s cubic-bezier(.4,0,.2,1),transform .46s cubic-bezier(.4,0,.2,1),filter .42s ease}
-.landing:after{content:"";position:fixed;z-index:1000;inset:0;background:linear-gradient(145deg,#f6f3ed 0%,#edf6f2 62%,#e4f1ec 100%);opacity:0;pointer-events:none;transition:opacity .38s ease}
+.landing:after{content:"";position:fixed;z-index:1000;inset:0;background:linear-gradient(145deg,var(--cream) 0%,#edf6f2 62%,#e4f1ec 100%);opacity:0;pointer-events:none;transition:opacity .38s ease}
 .landing-leaving{opacity:0;transform:scale(.985) translateY(-8px);filter:blur(3px);pointer-events:none}
 .landing-leaving:after{opacity:1}
 .landing-leaving .hero-demo{animation:none;transform:translateY(-4px) rotate(.35deg) scale(.99);transition:transform .42s cubic-bezier(.4,0,.2,1)}
